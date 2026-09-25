@@ -6,7 +6,7 @@
 같은 이름은 전 세계 어느 기기에서 입력해도 **완전히 같은 행성**이 됩니다.
 서버도, 데이터베이스도, API 키도 없이 이름 하나에서 모든 것을 결정론적으로 만들어 냅니다.
 
-🌐 **바로 체험하기:** https://fillddak.github.io/nameverse/
+➡️ 링크: https://fillddak.github.io/nameverse/
 
 ## 실행
 
