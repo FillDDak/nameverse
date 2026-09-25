@@ -6,7 +6,7 @@ const vm = require('vm');
 const ctx = { window: {}, console, Math, JSON, String, Array, Object, Number };
 ctx.window = ctx;
 vm.createContext(ctx);
-for (const f of ['seed.js', 'genesis.js', 'surface.js']) {
+for (const f of ['seed.js', 'exoplanets.js', 'genesis.js', 'surface.js']) {
   vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'js', f), 'utf8'), ctx, { filename: f });
 }
 const NV = ctx.NV;
@@ -57,9 +57,26 @@ assert(NV.josa('서울', '으로/로') === '서울로', '조사 ㄹ');
 assert(NV.josa('에라 c', '이었습니다/였습니다') === '에라 c였습니다', '알파벳 글자 이름');
 assert(NV.josa('벨로 m', '이라는/라는') === '벨로 m이라는', '알파벳 글자 이름 받침');
 assert(NV.josa('Bob', '이라는/라는') === 'Bob이라는', '영단어 받침');
-// 희귀도가 정직한지: '상위 1%'는 대략 1%여야 한다
-const mythic = (rar['신화'] || 0) / names.length;
-assert(mythic > 0.004 && mythic < 0.02, '신화 등급 비율 ≈1% (' + (mythic * 100).toFixed(2) + '%)');
+// 희귀도가 정직한지: '상위 1% 미만'은 대략 0.9%여야 한다 (테스트 이름은 중복이 많아 따로 뽑는다)
+let myth = 0;
+for (let i = 0; i < 40000; i++) if (NV.genesis('rarity-check-' + i).rarity.name === '신화') myth++;
+const mythic = myth / 40000;
+assert(mythic > 0.006 && mythic < 0.012, '신화 등급 비율 ≈0.9% (' + (mythic * 100).toFixed(2) + '%)');
+
+// 5) 실제 외계행성 데이터
+const E = NV.EXO;
+assert(E.rows.length > 5000, '외계행성 목록 ' + E.rows.length + '개');
+for (let i = 0; i < E.rows.length; i++) {
+  const w = NV.genesis('데이터 검사', i);
+  const text = JSON.stringify([w.lore, w.stats, w.planet, w.coords, w.constellation]);
+  if (/undefined|NaN|null|\{\w+/.test(text)) { assert(false, `외계행성 텍스트 오류 (${E.rows[i][0]}): ${text.slice(0, 300)}`); break; }
+  const v = w.visual;
+  if (![...v.deep, ...v.atmo, ...v.lightCol, v.sea, v.ice].every(Number.isFinite)) { assert(false, `외계행성 시각 파라미터 (${E.rows[i][0]})`); break; }
+}
+const trap = E.rows.findIndex((r) => r[0] === 'TRAPPIST-1 e');
+const tw = NV.genesis('x', trap);
+assert(tw.constellation === '물병' && tw.rarity.name === '신화', 'TRAPPIST-1 e: 물병자리 · 신화');
+assert(NV.genesis('홍길동').exoIndex === NV.genesis('홍길동').exoIndex, '같은 이름 → 같은 실제 행성');
 
 console.log('생물군계 분포:', counts);
 console.log('희귀도 분포:', rar);

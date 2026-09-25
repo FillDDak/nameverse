@@ -243,7 +243,7 @@
     scramble(el.scanCoord, `RA ${w.coords.ra} · DEC ${w.coords.dec} · ${w.catalog}`, 2000);
     const lines = worlds.length > 1
       ? ['두 이름의 파동을 겹쳐 보는 중…', '두 행성의 궤도를 계산하는 중…', '중력의 공명을 측정하는 중…', '쌍성계 포착!']
-      : ['이름의 파동을 분석하는 중…', '주파수를 우주 좌표로 바꾸는 중…', `${w.constellation}자리 방향을 관측하는 중…`, '행성 신호 포착!'];
+      : ['이름을 우주 좌표로 바꾸는 중…', `${w.constellation}자리 방향을 관측하는 중…`, `${w.catalog} 주변을 살피는 중…`, '행성 확인!'];
     for (const line of lines) {
       if (token !== S.scanToken) return false;
       el.scanLine.textContent = line;
@@ -286,7 +286,8 @@
 
   function rarityBadge(r) {
     const cls = { '신화': 'r-mythic', '전설': 'r-legendary', '희귀': 'r-rare' }[r.name] || '';
-    return `<span class="rarity ${cls}">★ ${r.name} 등급 <small>· 상위 ${r.topPct}% · ${r.en}</small></span>`;
+    return `<span class="rarity ${cls}">★ ${r.name} 등급 <small>· 상위 ${r.topPct}% · ${r.en}</small></span>`
+      + (r.reason ? `<p class="rarity-why">${esc(r.reason)}</p>` : '');
   }
 
   function renderPanel(w) {
@@ -304,17 +305,22 @@
           <button class="act" data-act="share">${ICON.share}<span>공유하기</span></button>
           <button class="act" data-act="duo">${ICON.duo}<span>궁합 보기</span></button>
         </div>
+        <h3 class="p-h reveal" ${d()}>관측 데이터 <small>NASA Exoplanet Archive</small></h3>
         <dl class="p-stats reveal" ${d()}>
           ${w.stats.map((s, k) => `<div class="${k === w.stats.length - 1 ? 'wide' : ''}"><dt>${esc(s.k)}</dt><dd>${esc(s.v)}</dd></div>`).join('')}
         </dl>
+        <div class="p-lore">
+          ${w.lore.filter((s) => s.real).map((s) => `<section class="reveal" ${d()}><h4>${esc(s.title)}</h4><p>${esc(s.text)}</p></section>`).join('')}
+        </div>
+        <h3 class="p-h reveal" ${d()}>상상 기록 <small>실제 데이터에 상상을 더한 이야기</small></h3>
         <div class="p-tags reveal" ${d()}>${w.tags.map((t) => `<span>${esc(t)}</span>`).join('')}</div>
         <div class="p-role reveal" ${d()}>이 행성에서 당신의 직업은<br><b>${esc(w.role)}</b>입니다.</div>
         <div class="p-lore">
-          ${w.lore.map((s) => `<section class="reveal" ${d()}><h4>${esc(s.title)}</h4><p>${esc(s.text)}</p></section>`).join('')}
+          ${w.lore.filter((s) => !s.real).map((s) => `<section class="reveal" ${d()}><h4>${esc(s.title)}</h4><p>${esc(s.text)}</p></section>`).join('')}
         </div>
         <blockquote class="p-proverb reveal" ${d()}><p>“${esc(w.proverb)}”</p><cite>— ${esc(w.planet)}에 전해지는 오래된 속담</cite></blockquote>
         <button class="ghost wide reveal" data-act="new" ${d()}>↺ 다른 이름의 행성 찾기</button>
-        <p class="p-foot">같은 이름을 입력하는 사람은 누구나 이 행성을 발견합니다.<br>행성을 드래그하거나 눌러서 표면을 탐사해 보세요.</p>
+        <p class="p-foot">같은 이름을 입력하는 사람은 누구나 이 행성을 발견합니다.<br>행성의 모습과 고리, 위성은 실제 수치를 바탕으로 그린 상상도입니다.<br>데이터: ${esc(NV.EXO.source)} · ${esc(NV.EXO.version)} 기준 ${NV.EXO.rows.length.toLocaleString('ko-KR')}개</p>
       </div>`;
     el.panel.hidden = false;
     el.panel.scrollTop = 0;
@@ -450,7 +456,7 @@
     if (!w) return;
     const text = S.mode === 'duo'
       ? `${w.owner} × ${S.partner.owner} 행성 궁합 ${S.harmony.score}% — ${S.harmony.tier.name}`
-      : `내 이름으로 태어난 행성 「${w.planet}」 — ${w.biome.name}, ${w.rarity.name} 등급 (상위 ${w.rarity.topPct}%)`;
+      : `내 이름과 연결된 실제 외계행성 「${w.planet}」 — ${w.exo.dist != null ? Math.round(w.exo.dist).toLocaleString('ko-KR') + '광년 거리, ' : ''}${w.rarity.name} 등급 (상위 ${w.rarity.topPct}%)`;
     if (navigator.share && coarse) {
       try { await navigator.share({ title: 'NAMEVERSE', text, url }); return; } catch (e) { if (e.name === 'AbortError') return; }
     }

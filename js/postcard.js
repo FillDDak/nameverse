@@ -94,7 +94,9 @@
     ctx.fillStyle = world.accent; ctx.font = `700 22px ${FONT}`;
     spaced(ctx, 'CERTIFICATE OF DISCOVERY', W / 2, 104, 6);
 
-    ctx.fillStyle = '#fff'; ctx.font = `800 92px ${FONT}`;
+    ctx.fillStyle = '#fff';
+    let size = 92;
+    do { ctx.font = `800 ${size}px ${FONT}`; size -= 4; } while (size > 40 && ctx.measureText(world.planet).width > W - 160);
     ctx.fillText(world.planet, W / 2, 940);
     ctx.fillStyle = 'rgba(255,255,255,0.8)'; ctx.font = `500 34px ${FONT}`;
     ctx.fillText(`${world.owner}의 행성 · ${world.biome.name}`, W / 2, 994);
@@ -109,11 +111,11 @@
     ctx.fillStyle = '#fff'; ctx.fillText(badge, W / 2, 1055);
 
     // 핵심 수치
-    const pick = ['지름', '평균 기온', '위성', '생명 가능성'].map((k) => world.stats.find((s) => s.k === k));
+    const pick = ['지름', '평형 온도', '거리', '지구 유사도'].map((k) => world.stats.find((s) => s.k === k));
     pick.forEach((s, i) => {
       const x = 78 + (W - 156) * (i + 0.5) / pick.length;
       ctx.fillStyle = 'rgba(255,255,255,0.5)'; ctx.font = `500 22px ${FONT}`; ctx.fillText(s.k, x, 1120);
-      ctx.fillStyle = '#fff'; ctx.font = `700 30px ${FONT}`; ctx.fillText(s.v, x, 1160);
+      ctx.fillStyle = '#fff'; ctx.font = `700 30px ${FONT}`; ctx.fillText(s.short || s.v, x, 1160);
     });
 
     ctx.fillStyle = 'rgba(255,255,255,0.75)'; ctx.font = `italic 500 28px ${FONT}`;

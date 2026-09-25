@@ -12,7 +12,7 @@ precision highp float;
 uniform vec2 uRes; uniform vec2 uOffset; uniform vec2 uShift;
 uniform float uTime, uFocal, uCamDist, uAlpha, uPulse;
 uniform mat3 uRot, uCloudRot;
-uniform vec3 uLight, uSeedOff;
+uniform vec3 uLight, uSeedOff, uLightCol;
 uniform int uType;
 uniform vec3 uDeep, uShallow, uLand, uHigh, uPeak, uAtmo, uEmit, uCloudCol;
 uniform float uSea, uClouds, uIce, uCity, uWarp, uScale, uAtmoStr, uSpec;
@@ -130,12 +130,12 @@ vec3 shadePlanet(vec3 n, vec3 rd, vec3 p){
 
   float sh = ringShadow(p)*moonShadow(p, uMoon0)*moonShadow(p, uMoon1)*moonShadow(p, uMoon2);
   float dl = max(diff, 0.0)*sh;
-  vec3 lightCol = vec3(1.0, 0.96, 0.9);
+  vec3 lightCol = uLightCol;
   vec3 c = base*(dl*1.15 + 0.02)*lightCol;
   vec3 hv = normalize(uLight - rd);
   c += lightCol*spec*pow(max(dot(n, hv), 0.0), 70.0)*0.75*sh*step(0.0, diff)*(1.0 - cloud);
   c += emit*(1.0 - cloud*0.75);
-  c = mix(c, uCloudCol*(dl*1.2 + 0.025), cloud*0.95);
+  c = mix(c, uCloudCol*lightCol*(dl*1.2 + 0.025), cloud*0.95);
   float mu = max(dot(n, -rd), 0.0);
   float fres = pow(1.0 - mu, 2.6);
   float atmoL = smoothstep(-0.35, 0.6, diff);
@@ -342,7 +342,7 @@ void main(){
       // 행 우선 R을 그대로 올리면 GLSL에서는 Rᵀ(월드→로컬)가 된다
       gl.uniformMatrix3fv(u.uRot, false, new Float32Array(st.R));
       gl.uniformMatrix3fv(u.uCloudRot, false, new Float32Array(st.RC));
-      f3('uLight', LIGHT); f3('uSeedOff', v.seedOff);
+      f3('uLight', LIGHT); f3('uLightCol', v.lightCol || [1, 0.96, 0.9]); f3('uSeedOff', v.seedOff);
       gl.uniform1i(u.uType, v.type);
       ['Deep', 'Shallow', 'Land', 'High', 'Peak', 'Atmo', 'Emit', 'CloudCol'].forEach((k) => {
         f3('u' + k, v[k.charAt(0).toLowerCase() + k.slice(1)] || [0, 0, 0]);
