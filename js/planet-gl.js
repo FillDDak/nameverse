@@ -19,7 +19,7 @@ uniform float uSea, uClouds, uIce, uCity, uWarp, uScale, uAtmoStr, uSpec;
 uniform float uBands, uTurb, uStormSize; uniform vec3 uStorm;
 uniform float uRing, uRingSeed; uniform vec3 uRingN; uniform vec2 uRingR; uniform vec3 uRingCol;
 uniform vec4 uMoon0, uMoon1, uMoon2; uniform vec3 uMoonCol0, uMoonCol1, uMoonCol2;
-uniform float uStarR;
+uniform float uStarR, uSkyFocal, uSky; uniform mat3 uView;
 
 // 3D simplex noise (Ashima Arts / Ian McEwan, MIT) — 좌표가 커져도 격자 무늬나 정밀도 깨짐이 없다
 vec3 mod289(vec3 x){ return x - floor((x + 0.5)*(1.0/289.0))*289.0; }
@@ -260,6 +260,29 @@ void traceMoon(vec3 ro, vec3 rd, vec4 m, vec3 mc, float idx, inout float tBest, 
   }
 }
 
+// 하늘: 무한히 먼 별 (천구 위 격자마다 별 하나) + 은하수
+float h31(vec3 p){ p = fract(p*vec3(0.1031, 0.1030, 0.0973)); p += dot(p, p.yxz + 33.33); return fract((p.x + p.y)*p.z); }
+vec3 starLayer(vec3 d, float sc, float ap, float dens, float gain){
+  vec3 c = floor(d*sc);
+  float h = h31(c);
+  if(h > dens) return vec3(0.0);
+  vec3 sdir = normalize(c + vec3(h31(c + 17.1), h31(c + 31.7), h31(c + 47.3))*0.7 + 0.15);
+  float a = length(cross(d, sdir));
+  float w = ap*0.85;
+  float b = h31(c + 71.9); b = b*b*b*b*b*b;
+  vec3 tint = mix(vec3(1.0), mix(vec3(1.0, 0.8, 0.62), vec3(0.7, 0.8, 1.0), h31(c + 93.1)), 0.6);
+  float tw = 0.85 + 0.15*sin(uTime*(1.0 + 3.0*h) + h*40.0);
+  return tint*exp(-a*a/(w*w))*(0.1 + 2.2*b)*gain*tw;
+}
+vec3 skyColor(vec3 d, float ap){
+  float gl = dot(d, normalize(vec3(0.25, 0.92, 0.3)));
+  float band = exp(-gl*gl/0.018);
+  float cl = 0.5 + 0.5*fbm3(d*3.2 + 7.0);
+  float dust = smoothstep(0.35, 0.75, 0.5 + 0.5*fbm3(d*7.0 + 3.0));
+  vec3 mw = mix(vec3(0.5, 0.48, 0.62), vec3(0.78, 0.64, 0.5), cl)*band*(0.3 + 0.7*cl)*(1.0 - 0.65*dust)*0.06;
+  return starLayer(d, 70.0, ap, 0.28, 0.9) + starLayer(d, 160.0, ap, 0.08 + band*0.25, 0.4) + starLayer(d, 330.0, ap, 0.015 + band*0.2, 0.25) + mw;
+}
+
 void main(){
   vec2 uv = (gl_FragCoord.xy - uOffset - 0.5*uRes)/uRes.y - uShift;
   vec3 ro = vec3(0.0, 0.0, uCamDist);
@@ -316,22 +339,44 @@ void main(){
       }
     }
   }
-  // 모항성: 실제 겉보기 크기로 가장 먼 배경에 그린다 (행성·고리·위성에 가려진다)
-  float sd = 2.0*asin(clamp(length(rd - uLight)*0.5, 0.0, 1.0));
-  float ap = 1.0/(uRes.y*uFocal);
-  float sr = max(uStarR, ap*1.5);
-  float disk = smoothstep(sr + ap, sr - ap, sd);
+  // 모항성과 하늘은 무한히 멀다: 행성을 확대(uFocal)해도 크기가 변하지 않도록 따로 정한 초점거리로 본다
+  vec3 rdS = normalize(vec3(uv, -uSkyFocal));
+  float apS = 1.0/(uRes.y*uSkyFocal);
+  vec3 tint = clamp((uLightCol - 0.45)/0.55, 0.0, 1.0); // 별 본래 색 (uLightCol은 흰색 쪽에 섞은 조명용 값)
+  float sd = 2.0*asin(clamp(length(rdS - uLight)*0.5, 0.0, 1.0));
+  float sr = max(uStarR, apS*1.2);
+  float disk = smoothstep(sr + apS, sr - apS, sd);
   float mu2 = sqrt(max(0.0, 1.0 - (sd*sd)/(sr*sr)));
-  // 별 본래 색 (uLightCol은 행성 조명용으로 흰색 쪽에 섞어 둔 값)
-  vec3 tint = clamp((uLightCol - 0.45)/0.55, 0.0, 1.0);
-  // 주연 감광: 가운데는 하얗게 타오르고 가장자리로 갈수록 어둡고 진한 색
-  float gran = 1.0 + 0.12*snoise((rd - uLight)/max(sr, 1e-3)*6.0)*aa(6.0/max(sr, 1e-3), ap);
-  vec3 face = mix(tint, vec3(1.0), mu2*0.35)*(0.4 + 0.6*mu2)*gran;
-  float sg = exp(-max(sd - sr, 0.0)/(sr*1.4 + 0.012))*0.6 + exp(-sd/0.3)*0.1;
-  vec3 starC = 1.0 - exp(-(face*disk*1.7 + tint*sg)*1.3);
-  float sa = clamp(max(disk, sg), 0.0, 1.0);
-  col += starC*sa*(1.0 - alpha);
-  alpha += sa*(1.0 - alpha);
+  // 가운데는 하얗게 타오르고 가장자리로 갈수록 진한 색 (주연 감광)
+  vec3 face = mix(tint, vec3(1.0), 0.35 + mu2*0.5)*(0.55 + 0.45*mu2);
+  vec3 starC = 1.0 - exp(-face*3.0);
+  col += starC*disk*(1.0 - alpha);
+  alpha += disk*(1.0 - alpha);
+  if(uSky > 0.5 && alpha < 0.999){
+    vec3 sky = skyColor(uView*rdS, apS);
+    col += sky*(1.0 - alpha);
+    alpha += min(1.0, max(sky.r, max(sky.g, sky.b)))*(1.0 - alpha);
+  }
+  // 빛 번짐과 회절 빛줄기: 망원경·카메라로 밝은 별을 찍은 것처럼. 별이 행성 뒤로 숨으면 함께 사라진다
+  if(uLight.z < 0.0){
+    vec2 uvStar = uLight.xy/(-uLight.z)*uSkyFocal;
+    vec2 dv = uv - uvStar;
+    float rS = sr*uSkyFocal;
+    vec3 rdc = normalize(vec3(uvStar, -uFocal));
+    float bc = dot(ro, rdc);
+    float dc = sqrt(max(dot(ro, ro) - bc*bc, 0.0));
+    float m = sr*uCamDist + 0.004;
+    float vis = smoothstep(1.0 - m, 1.0 + m, dc);
+    float L = length(dv);
+    float bloom = exp(-L/(rS*1.3 + 0.004))*0.9 + exp(-L/(rS*5.0 + 0.035))*0.14 + exp(-L/0.35)*0.03;
+    float ang = 0.42;
+    vec2 q = vec2(cos(ang)*dv.x - sin(ang)*dv.y, sin(ang)*dv.x + cos(ang)*dv.y);
+    float pw = 1.0/uRes.y, sl = rS*3.5 + 0.025;
+    float spikes = (exp(-abs(q.y)/pw)*exp(-abs(q.x)/sl) + exp(-abs(q.x)/pw)*exp(-abs(q.y)/sl))*0.22;
+    vec3 flare = mix(tint, vec3(1.0), 0.45)*(bloom + spikes)*vis;
+    col += flare;
+    alpha = max(alpha, min(1.0, max(flare.r, max(flare.g, flare.b))));
+  }
 
   alpha = clamp(alpha, 0.0, 1.0);
   col = min(col, vec3(alpha));
@@ -439,7 +484,7 @@ void main(){
         const a = m.phase + time * m.speed;
         return M.vec(M.mul(V, M.mul(M.rx(pitch), M.rz(m.incl))), [Math.cos(a) * m.dist, 0, Math.sin(a) * m.dist]).concat(m.r);
       });
-      return { R, RC, focal, alpha: Math.min(1, Math.max(0, (time - slot.fadeAt) / 0.6)), ringN: M.vec(tiltM, [0, 1, 0]), moons, light: M.vec(V, LIGHT) };
+      return { R, RC, focal, alpha: Math.min(1, Math.max(0, (time - slot.fadeAt) / 0.6)), ringN: M.vec(tiltM, [0, 1, 0]), moons, light: M.vec(V, LIGHT), V, skyFocal: vp.fit * CAM / v.extent };
     }
 
     render(time) {
@@ -468,7 +513,9 @@ void main(){
       // 행 우선 R을 그대로 올리면 GLSL에서는 Rᵀ(월드→로컬)가 된다
       gl.uniformMatrix3fv(u.uRot, false, new Float32Array(st.R));
       gl.uniformMatrix3fv(u.uCloudRot, false, new Float32Array(st.RC));
-      f3('uLight', st.light); f1('uStarR', v.starAng || 0.006); f3('uLightCol', v.lightCol || [1, 0.96, 0.9]); f3('uSeedOff', v.seedOff);
+      f3('uLight', st.light); f1('uStarR', v.starAng || 0.006);
+      f1('uSkyFocal', st.skyFocal); f1('uSky', vp.sky ? 1 : 0);
+      gl.uniformMatrix3fv(u.uView, false, new Float32Array(st.V)); f3('uLightCol', v.lightCol || [1, 0.96, 0.9]); f3('uSeedOff', v.seedOff);
       gl.uniform1i(u.uType, v.type);
       ['Deep', 'Shallow', 'Land', 'High', 'Peak', 'Atmo', 'Emit', 'CloudCol'].forEach((k) => {
         f3('u' + k, v[k.charAt(0).toLowerCase() + k.slice(1)] || [0, 0, 0]);

@@ -70,11 +70,11 @@
     if (mobile) {
       const area = ch * 0.5 - 56;
       const cy = 56 + area / 2;
-      return [{ x: 0, y: 0, w: W, h: H, shift: [0, 0.5 - cy / ch], fit: Math.min((0.92 * area) / 2 / ch, (0.46 * cw) / ch) }];
+      return [{ x: 0, y: 0, w: W, h: H, shift: [0, 0.5 - cy / ch], fit: Math.min((0.92 * area) / 2 / ch, (0.46 * cw) / ch), sky: true }];
     }
     const panelW = Math.min(440, cw * 0.4) + 22;
     const avail = cw - panelW;
-    return [{ x: 0, y: 0, w: W, h: H, shift: [-panelW / 2 / ch, -0.01], fit: Math.min(0.4, (0.44 * avail) / ch) }];
+    return [{ x: 0, y: 0, w: W, h: H, shift: [-panelW / 2 / ch, -0.01], fit: Math.min(0.4, (0.44 * avail) / ch), sky: true }];
   }
 
   function resize() {
@@ -109,7 +109,6 @@
         d.y += (0 - d.y) * Math.min(1, dt * 0.35);
         d.y = Math.max(-1.1, Math.min(1.1, d.y));
       }
-      stars.view.yaw = c.yaw; stars.view.pitch = c.pitch;
       renderer.pulse = music.getLevel();
       renderer.render(now / 1000);
       // 프레임이 느리면 해상도를 낮추고, 여유가 있으면 다시 높인다
@@ -147,6 +146,8 @@
   function setMode(m) {
     S.mode = m;
     el.body.className = 'mode-' + m;
+    // 행성 화면에서는 셰이더가 시점과 함께 도는 진짜 하늘(별·은하수)을 그리므로 2D 별밭은 걷어낸다
+    stars.hideTarget = m === 'world' ? 1 : 0;
   }
 
   /* ───────────── 라우팅: #n=이름&m=상대 ───────────── */
