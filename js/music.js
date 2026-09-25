@@ -15,13 +15,26 @@
     _init() {
       const AC = window.AudioContext || window.webkitAudioContext;
       if (!AC) throw new Error('Web Audio 미지원');
+      // iOS: 무음 스위치와 상관없이 음악처럼 재생
+      try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch (e) { /* 미지원 */ }
       const ctx = this.ctx = new AC();
       this.master = ctx.createGain(); this.master.gain.value = 0;
       const comp = ctx.createDynamicsCompressor();
       comp.threshold.value = -18; comp.ratio.value = 3;
       this.analyser = ctx.createAnalyser(); this.analyser.fftSize = 512;
-      this.master.connect(comp); comp.connect(this.analyser); this.analyser.connect(ctx.destination);
+      this.master.connect(comp); comp.connect(this.analyser);
       this.buf = new Uint8Array(this.analyser.fftSize);
+
+      // 소리를 <audio> 요소로 내보내야 아이폰 제어센터·잠금 화면에 '지금 재생 중'으로 뜬다
+      if (ctx.createMediaStreamDestination) {
+        this.stream = ctx.createMediaStreamDestination();
+        this.analyser.connect(this.stream);
+        this.el = document.createElement('audio');
+        this.el.setAttribute('playsinline', '');
+        this.el.srcObject = this.stream.stream;
+      } else {
+        this.analyser.connect(ctx.destination);
+      }
 
       // 잔향: 지수 감쇠 노이즈로 임펄스 응답을 직접 만든다
       this.reverb = ctx.createConvolver();
@@ -45,8 +58,22 @@
       this.dry.connect(this.master); this.dry.connect(this.reverb);
     }
 
+    // <audio> 재생이 막히면 예전처럼 스피커로 바로 보낸다
+    _direct() {
+      if (!this.el) return;
+      try { this.analyser.disconnect(this.stream); } catch (e) { /* 이미 끊김 */ }
+      this.analyser.connect(this.ctx.destination);
+      this.el = null;
+    }
+
     async play(world) {
       if (!this.ctx) this._init();
+      clearTimeout(this.pauseTimer);
+      // 사용자 제스처가 살아 있을 때 곧바로 play()를 불러야 한다 (await 이전)
+      if (this.el) {
+        const pr = this.el.play();
+        if (pr) pr.catch(() => this._direct());
+      }
       await this.ctx.resume();
       const p = world.music;
       this.p = p;
@@ -74,6 +101,8 @@
       this.master.gain.setValueAtTime(this.master.gain.value, t);
       this.master.gain.linearRampToValueAtTime(0, t + 1.2);
       clearInterval(this.timer);
+      const el = this.el;
+      if (el) this.pauseTimer = setTimeout(() => el.pause(), 1300);
     }
 
     getLevel() {

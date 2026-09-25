@@ -184,7 +184,7 @@
     el.hint.innerHTML = n
       ? `지평선 너머에 <b>${esc(w.planet)}</b> 행성이 떠오르고 있어요 · ${esc(w.biome.name)}`
       : '한 글자씩 입력할 때마다 지평선 너머의 행성이 바뀝니다';
-    if (music.playing) music.play(w);
+    if (music.playing) playMusic(w);
   }
   el.name.addEventListener('input', () => {
     clearTimeout(previewTimer);
@@ -273,7 +273,7 @@
     renderPanel(w);
     saveAtlas(w);
     document.title = `${w.planet} — ${w.owner}의 행성 · NAMEVERSE`;
-    if (music.playing) music.play(w);
+    if (music.playing) playMusic(w);
     showDragHint();
   }
 
@@ -367,7 +367,7 @@
     if (renderer) { renderer.zoom = 1; renderer.setWorlds([A, B]); }
     saveAtlas(B); saveAtlas(A);
     document.title = `${A.owner} × ${B.owner} 행성 궁합 ${S.harmony.score}% · NAMEVERSE`;
-    if (music.playing) music.play(A);
+    if (music.playing) playMusic(A);
   }
 
   function renderDuo(A, B, hm) {
@@ -396,12 +396,45 @@
   }
 
   /* ───────────── 소리 ───────────── */
+  // 아이폰 제어센터·잠금 화면의 '지금 재생 중': 제목, 부제, 앨범 아트
+  const artCache = new Map();
+  function nowPlaying(w) {
+    if (!('mediaSession' in navigator) || !window.MediaMetadata) return;
+    let art = artCache.get(w.key);
+    if (!art && renderer) {
+      try {
+        art = NV.postcard.artwork(w, 12).toDataURL('image/jpeg', 0.9);
+        artCache.set(w.key, art);
+      } catch (e) { console.error(e); }
+    }
+    navigator.mediaSession.metadata = new MediaMetadata({
+      title: w.planet,
+      artist: `${w.owner}의 행성 · ${w.biome.name}`,
+      album: 'NAMEVERSE · 행성의 노래',
+      artwork: art ? [{ src: art, sizes: '512x512', type: 'image/jpeg' }] : [{ src: 'apple-touch-icon.png', sizes: '180x180', type: 'image/png' }],
+    });
+  }
+  function playMusic(w) {
+    nowPlaying(w);
+    const p = music.play(w);
+    if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing';
+    return p;
+  }
+  if ('mediaSession' in navigator) {
+    try {
+      navigator.mediaSession.setActionHandler('play', () => { if (!music.playing) toggleMusic(); });
+      navigator.mediaSession.setActionHandler('pause', () => { if (music.playing) toggleMusic(); });
+    } catch (e) { /* 미지원 동작 */ }
+  }
+
   async function toggleMusic() {
-    if (music.playing) music.stop();
-    else {
+    if (music.playing) {
+      music.stop();
+      if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused';
+    } else {
       const w = S.world || S.preview;
       try {
-        await music.play(w);
+        await playMusic(w);
         toast(`♪ ${w.planet}의 노래 · ${MODE_KO[w.music.mode] || ''} 선법 · ${w.music.bpm} BPM`);
       } catch (e) {
         console.error(e);

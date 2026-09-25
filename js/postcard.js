@@ -155,11 +155,32 @@
     return c;
   }
 
+  // 제어센터·잠금 화면용 앨범 아트 (정사각형, 글자 없이 행성만)
+  function artwork(world, time, S = 512) {
+    const c = document.createElement('canvas'); c.width = c.height = S;
+    const ctx = c.getContext('2d');
+    ctx.fillStyle = '#04040b';
+    ctx.fillRect(0, 0, S, S);
+    const g = ctx.createRadialGradient(S / 2, S / 2, S * 0.1, S / 2, S / 2, S * 0.7);
+    g.addColorStop(0, NV.toCss(world.visual.atmo, 0.3));
+    g.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = g; ctx.fillRect(0, 0, S, S);
+    const r = NV.makeRng('artwork/' + world.key);
+    for (let i = 0; i < 90; i++) {
+      const s = r.range(0.5, 1.8);
+      ctx.fillStyle = `rgba(255,255,255,${r.range(0.15, 0.7)})`;
+      ctx.fillRect(r.range(0, S), r.range(0, S), s, s);
+    }
+    const img = planetImage([world], S, S, time);
+    ctx.drawImage(img, 0, 0);
+    return c;
+  }
+
   function roundRect(ctx, x, y, w, h, r) {
     ctx.beginPath();
     ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r);
     ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath();
   }
 
-  NV.postcard = { single, duo };
+  NV.postcard = { single, duo, artwork };
 })();
