@@ -280,7 +280,8 @@ vec3 skyColor(vec3 d, float ap){
   float cl = 0.5 + 0.5*fbm3(d*3.2 + 7.0);
   float dust = smoothstep(0.35, 0.75, 0.5 + 0.5*fbm3(d*7.0 + 3.0));
   vec3 mw = mix(vec3(0.5, 0.48, 0.62), vec3(0.78, 0.64, 0.5), cl)*band*(0.3 + 0.7*cl)*(1.0 - 0.65*dust)*0.06;
-  return starLayer(d, 70.0, ap, 0.28, 0.9) + starLayer(d, 160.0, ap, 0.08 + band*0.25, 0.4) + starLayer(d, 330.0, ap, 0.015 + band*0.2, 0.25) + mw;
+  // 흐릿한 별 먼지만 셰이더가 그리고, 또렷한 별은 2D 별밭(워프로 지나온 별 그대로)이 그린다
+  return starLayer(d, 330.0, ap, band*0.35, 0.25) + mw;
 }
 
 void main(){
@@ -343,38 +344,43 @@ void main(){
   vec3 rdS = normalize(vec3(uv, -uSkyFocal));
   float apS = 1.0/(uRes.y*uSkyFocal);
   vec3 tint = clamp((uLightCol - 0.45)/0.55, 0.0, 1.0); // 별 본래 색 (uLightCol은 흰색 쪽에 섞은 조명용 값)
+  // 모항성: 망원경 사진 속 별처럼 (Moffat 분포). 가운데는 하얗게 포화되고, 바깥으로 갈수록 별 색이 드러나며 퍼진다
   float sd = 2.0*asin(clamp(length(rdS - uLight)*0.5, 0.0, 1.0));
-  float sr = max(uStarR, apS*1.2);
-  float disk = smoothstep(sr + apS, sr - apS, sd);
-  float mu2 = sqrt(max(0.0, 1.0 - (sd*sd)/(sr*sr)));
-  // 가운데는 하얗게 타오르고 가장자리로 갈수록 진한 색 (주연 감광)
-  vec3 face = mix(tint, vec3(1.0), 0.35 + mu2*0.5)*(0.55 + 0.45*mu2);
-  vec3 starC = 1.0 - exp(-face*3.0);
-  col += starC*disk*(1.0 - alpha);
-  alpha += disk*(1.0 - alpha);
+  float r0 = max(uStarR, apS*1.5);
+  float q2 = sd*sd/(r0*r0);
+  // 빛의 파장마다 퍼짐이 조금씩 달라서 가장자리에 옅은 색 테가 생긴다
+  vec3 core = vec3(pow(1.0 + q2/1.1, -2.4), pow(1.0 + q2, -2.4), pow(1.0 + q2/0.9, -2.4))*6.0;
+  vec3 hue = mix(tint, vec3(1.0), 0.2);
+  vec3 coreC = 1.0 - exp(-core*hue);
+  float coreA = min(1.0, max(coreC.r, max(coreC.g, coreC.b)));
+  col += coreC*(1.0 - alpha);
+  alpha += coreA*(1.0 - alpha);
   if(uSky > 0.5 && alpha < 0.999){
     vec3 sky = skyColor(uView*rdS, apS);
     col += sky*(1.0 - alpha);
     alpha += min(1.0, max(sky.r, max(sky.g, sky.b)))*(1.0 - alpha);
   }
-  // 빛 번짐과 회절 빛줄기: 망원경·카메라로 밝은 별을 찍은 것처럼. 별이 행성 뒤로 숨으면 함께 사라진다
+  // 넓게 번지는 빛과 회절 빛줄기는 렌즈에서 생기므로 행성 위에도 겹친다. 별이 행성 뒤로 숨으면 함께 사라진다
   if(uLight.z < 0.0){
     vec2 uvStar = uLight.xy/(-uLight.z)*uSkyFocal;
     vec2 dv = uv - uvStar;
-    float rS = sr*uSkyFocal;
+    float rS = r0*uSkyFocal;
     vec3 rdc = normalize(vec3(uvStar, -uFocal));
     float bc = dot(ro, rdc);
     float dc = sqrt(max(dot(ro, ro) - bc*bc, 0.0));
-    float m = sr*uCamDist + 0.004;
+    float m = r0*uCamDist + 0.004;
     float vis = smoothstep(1.0 - m, 1.0 + m, dc);
     float L = length(dv);
-    float bloom = exp(-L/(rS*1.3 + 0.004))*0.9 + exp(-L/(rS*5.0 + 0.035))*0.14 + exp(-L/0.35)*0.03;
+    float wing = 0.35*pow(1.0 + L/(rS*1.5 + 0.002), -1.8) + 0.03*pow(1.0 + L/0.05, -1.5);
     float ang = 0.42;
     vec2 q = vec2(cos(ang)*dv.x - sin(ang)*dv.y, sin(ang)*dv.x + cos(ang)*dv.y);
-    float pw = 1.0/uRes.y, sl = rS*3.5 + 0.025;
-    float spikes = (exp(-abs(q.y)/pw)*exp(-abs(q.x)/sl) + exp(-abs(q.x)/pw)*exp(-abs(q.y)/sl))*0.22;
-    vec3 flare = mix(tint, vec3(1.0), 0.45)*(bloom + spikes)*vis;
-    col += flare;
+    float pw = 0.9/uRes.y;
+    vec3 sl = (rS*2.0 + 0.004)*vec3(1.12, 1.0, 0.88);
+    vec2 aq = abs(q);
+    float wx = pw*pw/((aq.y + pw)*(aq.y + pw)), wy = pw*pw/((aq.x + pw)*(aq.x + pw));
+    vec3 spikes = (wx*pow(1.0 + aq.x/sl, vec3(-1.25))*exp(-aq.x/(sl*18.0)) + wy*pow(1.0 + aq.y/sl, vec3(-1.25))*exp(-aq.y/(sl*18.0)))*0.6;
+    vec3 flare = 1.0 - exp(-(hue*wing + spikes*mix(hue, vec3(1.0), 0.5))*vis);
+    col += flare*(1.0 - col);
     alpha = max(alpha, min(1.0, max(flare.r, max(flare.g, flare.b))));
   }
 
@@ -533,6 +539,14 @@ void main(){
         f3('uMoonCol' + i, m ? v.moons[i].color : [0, 0, 0]);
       }
       gl.drawArrays(gl.TRIANGLES, 0, 3);
+    }
+
+    // 2D 별밭이 행성과 같은 카메라로 하늘을 그리도록: 시점 회전, 하늘 초점거리, 화면 이동
+    skyView() {
+      if (!this.slots.length) return null;
+      const vp = this.layout(this.canvas.width, this.canvas.height, this.slots.length)[0];
+      if (!vp || !vp.sky) return null;
+      return { V: M.mul(M.rx(this.cam.pitch), M.ry(this.cam.yaw)), focal: vp.fit * CAM / this.slots[0].world.visual.extent, shift: vp.shift };
     }
 
     // 화면 좌표(캔버스 픽셀, 위쪽 원점) → 행성 표면의 로컬 좌표

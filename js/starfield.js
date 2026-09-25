@@ -11,7 +11,8 @@
       this.mouse = { x: 0, y: 0, tx: 0, ty: 0 };
       this.tint = [0.35, 0.45, 1]; this.tintTarget = this.tint.slice();
       this.shooting = [];
-      this.hide = 0; this.hideTarget = 0; // 1이면 별밭을 걷어낸다 (행성 화면은 셰이더가 하늘을 그린다)
+      this.view = null;  // 행성 화면의 카메라 {V, focal, shift}: 있으면 별들을 하늘에 고정한다
+      this.sky = null;   // 하늘에 고정된 별들 (월드 방향)
       this.nebula = document.createElement('canvas');
       this.resize();
       window.addEventListener('pointermove', (e) => {
@@ -43,6 +44,65 @@
 
     setTint(rgb) { this.tintTarget = rgb.slice(); }
 
+    // 화면(캔버스 픽셀) ↔ 하늘 방향: 행성 셰이더와 같은 식 (uv = (픽셀 - 가운데)/높이 - shift, 방향 = (uv, -focal))
+    _enterSky(view) {
+      const W = this.w, H = this.h, f = view.focal, V = view.V, [sx, sy] = view.shift;
+      const cx = W / 2, cy = H / 2, scale = Math.max(W, H) * 0.5;
+      const toWorld = (x, y) => {
+        const ux = (x - cx) / H - sx, uy = (cy - y) / H - sy, l = Math.hypot(ux, uy, f);
+        const d = [ux / l, uy / l, -f / l];
+        return [V[0] * d[0] + V[3] * d[1] + V[6] * d[2], V[1] * d[0] + V[4] * d[1] + V[7] * d[2], V[2] * d[0] + V[5] * d[1] + V[8] * d[2]];
+      };
+      const sky = [];
+      for (const s of this.stars) {
+        const par = 1 / s.z;
+        const x = cx + (s.x / s.z) * scale * 0.5 - this.mouse.x * 18 * par * this.dpr;
+        const y = cy + (s.y / s.z) * scale * 0.5 - this.mouse.y * 18 * par * this.dpr;
+        if (x < 0 || x > W || y < 0 || y > H) continue;
+        const near = 1 - s.z;
+        sky.push({ d: toWorld(x, y), size: Math.min(3.2 * this.dpr, s.s * (0.5 + near * 1.6) * this.dpr), a: Math.min(1, 0.35 + near * 0.9), col: s.col, tw: s.tw, tws: s.tws });
+      }
+      // 화면 밖의 나머지 하늘도 같은 밀도로 채운다: 무작위 방향 중 화면에 들어오는 비율로 전체 개수를 정한다
+      const randDir = () => {
+        const u = Math.random() * 2 - 1, th = Math.random() * Math.PI * 2, rr = Math.sqrt(1 - u * u);
+        return [rr * Math.cos(th), u, rr * Math.sin(th)];
+      };
+      const visible = (d) => {
+        const vz = V[6] * d[0] + V[7] * d[1] + V[8] * d[2];
+        if (vz >= 0) return false;
+        const px = cx + ((V[0] * d[0] + V[1] * d[1] + V[2] * d[2]) / -vz * f + sx) * H;
+        const py = cy - ((V[3] * d[0] + V[4] * d[1] + V[5] * d[2]) / -vz * f + sy) * H;
+        return px >= 0 && px <= W && py >= 0 && py <= H;
+      };
+      let hit = 0;
+      for (let i = 0; i < 4000; i++) if (visible(randDir())) hit++;
+      const total = Math.min(40000, Math.round(sky.length / Math.max(hit / 4000, 0.004)));
+      for (let i = 0; i < total; i++) {
+        const d = randDir();
+        if (visible(d)) continue; // 이미 지나온 별들이 있는 곳
+        const s = this._star(true), near = 1 - s.z;
+        sky.push({ d, size: Math.min(3.2 * this.dpr, s.s * (0.5 + near * 1.6) * this.dpr), a: Math.min(1, 0.35 + near * 0.9), col: s.col, tw: s.tw, tws: s.tws });
+      }
+      this.sky = sky;
+    }
+
+    _drawSky(dt) {
+      const ctx = this.ctx, W = this.w, H = this.h, view = this.view;
+      const f = view.focal, V = view.V, [sx, sy] = view.shift, cx = W / 2, cy = H / 2;
+      for (const s of this.sky) {
+        s.tw += s.tws * dt;
+        const d = s.d;
+        const vz = V[6] * d[0] + V[7] * d[1] + V[8] * d[2];
+        if (vz >= -1e-3) continue;
+        const x = cx + ((V[0] * d[0] + V[1] * d[1] + V[2] * d[2]) / -vz * f + sx) * H;
+        if (x < -4 || x > W + 4) continue;
+        const y = cy - ((V[3] * d[0] + V[4] * d[1] + V[5] * d[2]) / -vz * f + sy) * H;
+        if (y < -4 || y > H + 4) continue;
+        ctx.fillStyle = `rgba(${s.col},${s.a * (0.75 + 0.25 * Math.sin(s.tw))})`;
+        ctx.fillRect(x - s.size / 2, y - s.size / 2, s.size, s.size);
+      }
+    }
+
     _paintNebula() {
       const nb = this.nebula, W = (nb.width = 480), H = (nb.height = Math.round(480 * this.h / this.w) || 270);
       const g = nb.getContext('2d');
@@ -71,15 +131,18 @@
       }
       if (changed && ((this._nt = (this._nt || 0) + dt) > 0.1)) { this._nt = 0; this._paintNebula(); }
 
-      this.hide += (this.hideTarget - this.hide) * Math.min(1, dt * 2.5);
+      // 행성에 도착하면(워프가 잦아들면) 지나온 별들을 그 자리 그대로 하늘에 고정한다
+      if (this.view && !this.sky && this.warp < 0.08) this._enterSky(this.view);
+      if (!this.view && this.sky) this.sky = null; // 다시 떠나면 멈춰 있던 자리에서 이어서 흐른다
+      this.skyFade = this.sky ? Math.min(1, (this.skyFade || 0) + dt * 1.5) : 0;
+
       ctx.fillStyle = '#03030a';
       ctx.fillRect(0, 0, W, H);
-      if (this.hide > 0.995) return;
       ctx.save();
-      ctx.globalAlpha = 1 - this.hide;
-      ctx.globalAlpha = (0.9 - this.warp * 0.4) * (1 - this.hide);
+      ctx.globalAlpha = (0.9 - this.warp * 0.4) * (1 - this.skyFade * 0.75); // 성운은 은하수(셰이더)에게 자리를 내준다
       ctx.drawImage(this.nebula, -this.mouse.x * 30 * this.dpr - 20, -this.mouse.y * 30 * this.dpr - 20, W + 40, H + 40);
-      ctx.globalAlpha = 1 - this.hide;
+      ctx.globalAlpha = 1;
+      if (this.sky) { this._drawSky(dt); ctx.restore(); return; }
 
       const cx = W / 2, cy = H / 2, scale = Math.max(W, H) * 0.5;
       const speed = 0.012 + this.warp * 2.4;

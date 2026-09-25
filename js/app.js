@@ -88,6 +88,8 @@
   let last = performance.now();
   function frame(now) {
     const dt = Math.min(0.1, (now - last) / 1000);
+    // 행성 화면에서는 별들을 행성과 같은 카메라로 하늘에 고정해 그린다
+    stars.view = renderer && S.mode === 'world' ? renderer.skyView() : null;
     stars.frame(Math.min(0.3, (now - last) / 1000), now / 1000);
     last = now;
     if (renderer) {
@@ -146,8 +148,6 @@
   function setMode(m) {
     S.mode = m;
     el.body.className = 'mode-' + m;
-    // 행성 화면에서는 셰이더가 시점과 함께 도는 진짜 하늘(별·은하수)을 그리므로 2D 별밭은 걷어낸다
-    stars.hideTarget = m === 'world' ? 1 : 0;
   }
 
   /* ───────────── 라우팅: #n=이름&m=상대 ───────────── */
@@ -719,5 +719,5 @@
   if (!location.hash && !coarse) setTimeout(() => el.name.focus(), 300);
 
   // 디버그/테스트용
-  NV.app = { S, go, renderer, music };
+  NV.app = { S, go, renderer, music, stars };
 })();
