@@ -19,6 +19,7 @@ uniform float uSea, uClouds, uIce, uCity, uWarp, uScale, uAtmoStr, uSpec;
 uniform float uBands, uTurb, uStormSize; uniform vec3 uStorm;
 uniform float uRing, uRingSeed; uniform vec3 uRingN; uniform vec2 uRingR; uniform vec3 uRingCol;
 uniform vec4 uMoon0, uMoon1, uMoon2; uniform vec3 uMoonCol0, uMoonCol1, uMoonCol2;
+uniform float uStarR;
 
 // 3D simplex noise (Ashima Arts / Ian McEwan, MIT) — 좌표가 커져도 격자 무늬나 정밀도 깨짐이 없다
 vec3 mod289(vec3 x){ return x - floor((x + 0.5)*(1.0/289.0))*289.0; }
@@ -238,7 +239,8 @@ vec3 shadePlanet(vec3 n, vec3 rd, vec3 p, float px){
   float haze = 1.0 - exp(-0.05*uAtmoStr*path);
   float atmL = smoothstep(-0.3, 0.45, ndl);
   vec3 sunset = mix(vec3(1.0, 0.55, 0.35), vec3(1.0), smoothstep(-0.05, 0.3, ndl));
-  vec3 air = uAtmo*lightCol*sunset*atmL*(1.0 + uPulse*0.8);
+  float fwdS = pow(max(dot(rd, uLight), 0.0), 6.0);
+  vec3 air = uAtmo*lightCol*(sunset*atmL + fwdS*1.4)*(1.0 + uPulse*0.8);
   c = c*(1.0 - haze*0.5) + air*haze*1.2;
   return c;
 }
@@ -273,7 +275,8 @@ void main(){
   float ldot = dot(normalize(cp), uLight);
   float lightF = smoothstep(-0.6, 0.8, ldot);
   vec3 haloCol = uAtmo*mix(vec3(1.0, 0.6, 0.4), vec3(1.0), smoothstep(-0.2, 0.4, ldot))*uLightCol;
-  float glow = g*lightF*0.6*uAtmoStr*(1.0 + uPulse*0.9);
+  float fwd = pow(max(dot(rd, uLight), 0.0), 6.0);
+  float glow = g*(lightF*0.6 + fwd*1.6)*uAtmoStr*(1.0 + uPulse*0.9);
   vec3 col = haloCol*glow;
   float alpha = glow;
 
@@ -313,6 +316,23 @@ void main(){
       }
     }
   }
+  // 모항성: 실제 겉보기 크기로 가장 먼 배경에 그린다 (행성·고리·위성에 가려진다)
+  float sd = 2.0*asin(clamp(length(rd - uLight)*0.5, 0.0, 1.0));
+  float ap = 1.0/(uRes.y*uFocal);
+  float sr = max(uStarR, ap*1.5);
+  float disk = smoothstep(sr + ap, sr - ap, sd);
+  float mu2 = sqrt(max(0.0, 1.0 - (sd*sd)/(sr*sr)));
+  // 별 본래 색 (uLightCol은 행성 조명용으로 흰색 쪽에 섞어 둔 값)
+  vec3 tint = clamp((uLightCol - 0.45)/0.55, 0.0, 1.0);
+  // 주연 감광: 가운데는 하얗게 타오르고 가장자리로 갈수록 어둡고 진한 색
+  float gran = 1.0 + 0.12*snoise((rd - uLight)/max(sr, 1e-3)*6.0)*aa(6.0/max(sr, 1e-3), ap);
+  vec3 face = mix(tint, vec3(1.0), mu2*0.35)*(0.4 + 0.6*mu2)*gran;
+  float sg = exp(-max(sd - sr, 0.0)/(sr*1.4 + 0.012))*0.6 + exp(-sd/0.3)*0.1;
+  vec3 starC = 1.0 - exp(-(face*disk*1.7 + tint*sg)*1.3);
+  float sa = clamp(max(disk, sg), 0.0, 1.0);
+  col += starC*sa*(1.0 - alpha);
+  alpha += sa*(1.0 - alpha);
+
   alpha = clamp(alpha, 0.0, 1.0);
   col = min(col, vec3(alpha));
   gl_FragColor = vec4(col, alpha)*uAlpha;
@@ -352,6 +372,7 @@ void main(){
       this.drag = { x: 0, y: 0, vx: 0, vy: 0 };
       this.zoom = 1;
       this.pulse = 0;
+      this.cam = { yaw: 0, pitch: 0, vyaw: 0, vpitch: 0 }; // 행성 주위를 도는 시점
       this.layout = () => [{ x: 0, y: 0, w: canvas.width, h: canvas.height, shift: [0, 0], fit: 0.4 }];
       this._build();
     }
@@ -405,7 +426,9 @@ void main(){
       const v = slot.world.visual;
       const pitch = BASE_PITCH + this.drag.y;
       const spinA = time * v.spin + this.drag.x;
-      const tiltM = M.mul(M.rx(pitch), M.rz(v.tilt));
+      // 시점 회전 V: 카메라를 돌리는 대신 장면 전체(행성·고리·위성·빛)를 반대로 돌린다
+      const V = M.mul(M.rx(this.cam.pitch), M.ry(this.cam.yaw));
+      const tiltM = M.mul(V, M.mul(M.rx(pitch), M.rz(v.tilt)));
       const R = M.mul(tiltM, M.ry(spinA));
       const RC = M.mul(tiltM, M.ry(spinA * 1.2 + time * v.cloudSpeed));
       const age = time - slot.appearAt;
@@ -414,9 +437,9 @@ void main(){
       const focal = (vp.fit * CAM / v.extent) * this.zoom * (0.02 + 0.98 * ease);
       const moons = v.moons.map((m) => {
         const a = m.phase + time * m.speed;
-        return M.vec(M.mul(M.rx(pitch), M.rz(m.incl)), [Math.cos(a) * m.dist, 0, Math.sin(a) * m.dist]).concat(m.r);
+        return M.vec(M.mul(V, M.mul(M.rx(pitch), M.rz(m.incl))), [Math.cos(a) * m.dist, 0, Math.sin(a) * m.dist]).concat(m.r);
       });
-      return { R, RC, focal, alpha: Math.min(1, Math.max(0, (time - slot.fadeAt) / 0.6)), ringN: M.vec(tiltM, [0, 1, 0]), moons };
+      return { R, RC, focal, alpha: Math.min(1, Math.max(0, (time - slot.fadeAt) / 0.6)), ringN: M.vec(tiltM, [0, 1, 0]), moons, light: M.vec(V, LIGHT) };
     }
 
     render(time) {
@@ -445,7 +468,7 @@ void main(){
       // 행 우선 R을 그대로 올리면 GLSL에서는 Rᵀ(월드→로컬)가 된다
       gl.uniformMatrix3fv(u.uRot, false, new Float32Array(st.R));
       gl.uniformMatrix3fv(u.uCloudRot, false, new Float32Array(st.RC));
-      f3('uLight', LIGHT); f3('uLightCol', v.lightCol || [1, 0.96, 0.9]); f3('uSeedOff', v.seedOff);
+      f3('uLight', st.light); f1('uStarR', v.starAng || 0.006); f3('uLightCol', v.lightCol || [1, 0.96, 0.9]); f3('uSeedOff', v.seedOff);
       gl.uniform1i(u.uType, v.type);
       ['Deep', 'Shallow', 'Land', 'High', 'Peak', 'Atmo', 'Emit', 'CloudCol'].forEach((k) => {
         f3('u' + k, v[k.charAt(0).toLowerCase() + k.slice(1)] || [0, 0, 0]);

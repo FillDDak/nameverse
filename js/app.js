@@ -92,13 +92,24 @@
     last = now;
     if (renderer) {
       const d = renderer.drag;
+      const c = renderer.cam;
+      if (S.viewReset) {
+        const k = Math.min(1, dt * 5);
+        c.yaw += (0 - c.yaw) * k; c.pitch += (0 - c.pitch) * k; renderer.zoom += (1 - renderer.zoom) * k;
+        c.vyaw = c.vpitch = 0;
+        if (Math.abs(c.yaw) + Math.abs(c.pitch) + Math.abs(renderer.zoom - 1) < 0.002) { c.yaw = c.pitch = 0; renderer.zoom = 1; S.viewReset = false; }
+      }
       if (!pointer.down) {
+        c.yaw += c.vyaw * dt; c.pitch = Math.max(-1.35, Math.min(1.35, c.pitch + c.vpitch * dt));
+        const cd = Math.pow(0.04, dt);
+        c.vyaw *= cd; c.vpitch *= cd;
         d.x += d.vx * dt; d.y += d.vy * dt;
         const damp = Math.pow(0.04, dt);
         d.vx *= damp; d.vy *= damp;
         d.y += (0 - d.y) * Math.min(1, dt * 0.35);
         d.y = Math.max(-1.1, Math.min(1.1, d.y));
       }
+      stars.view.yaw = c.yaw; stars.view.pitch = c.pitch;
       renderer.pulse = music.getLevel();
       renderer.render(now / 1000);
       // 프레임이 느리면 해상도를 낮추고, 여유가 있으면 다시 높인다
@@ -178,6 +189,7 @@
     S.preview = w;
     if (renderer) {
       renderer.zoom = 1;
+      Object.assign(renderer.cam, { yaw: 0, pitch: 0, vyaw: 0, vpitch: 0 });
       renderer.setWorlds([w], { grow: false });
     }
     setAccent(w);
@@ -270,6 +282,7 @@
     setAccent(w);
     if (renderer) {
       renderer.zoom = 1;
+      if (!same) Object.assign(renderer.cam, { yaw: 0, pitch: 0, vyaw: 0, vpitch: 0 });
       renderer.setWorlds([w], { grow: !same });
     }
     renderPanel(w);
@@ -366,7 +379,7 @@
     el.panel.hidden = true;
     setAccent(A);
     renderDuo(A, B, S.harmony);
-    if (renderer) { renderer.zoom = 1; renderer.setWorlds([A, B]); }
+    if (renderer) { renderer.zoom = 1; Object.assign(renderer.cam, { yaw: 0, pitch: 0, vyaw: 0, vpitch: 0 }); renderer.setWorlds([A, B]); }
     saveAtlas(B); saveAtlas(A);
     document.title = `${A.owner} × ${B.owner} 행성 궁합 ${S.harmony.score}% · NAMEVERSE`;
     if (music.playing) playMusic(A).catch(console.error);
@@ -521,44 +534,93 @@
     });
   }
 
-  /* ───────────── 지표 탐사 (드래그 · 클릭) ───────────── */
-  const pointer = { down: false, id: null, x: 0, y: 0, moved: 0, t: 0 };
+  /* ───────────── 조작: 드래그 = 행성 회전 · 오른쪽 드래그/두 손가락 = 시점 이동 · 핀치/휠 = 확대 ───────────── */
+  const pointers = new Map();   // pointerId → {x, y}
+  const pointer = { down: false, mode: 'spin', x: 0, y: 0, moved: 0, t: 0, dist: 0 };
+  const viewing = () => S.mode === 'world' || S.mode === 'duo';
+  const centroid = () => {
+    let x = 0, y = 0;
+    for (const p of pointers.values()) { x += p.x; y += p.y; }
+    return [x / pointers.size, y / pointers.size];
+  };
+  const spread = () => {
+    const [a, b] = [...pointers.values()];
+    return a && b ? Math.hypot(a.x - b.x, a.y - b.y) : 0;
+  };
+  function beginGesture(mode) {
+    pointer.mode = mode;
+    [pointer.x, pointer.y] = centroid();
+    pointer.dist = spread();
+    pointer.t = performance.now();
+    const d = renderer.drag, c = renderer.cam;
+    d.vx = d.vy = c.vyaw = c.vpitch = 0;
+  }
+  el.canvas.addEventListener('contextmenu', (e) => e.preventDefault());
   el.canvas.addEventListener('pointerdown', (e) => {
     if (!renderer || S.mode === 'scan') return;
-    pointer.down = true; pointer.id = e.pointerId;
-    pointer.x = e.clientX; pointer.y = e.clientY; pointer.moved = 0; pointer.t = performance.now();
-    renderer.drag.vx = renderer.drag.vy = 0;
+    pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
     el.canvas.setPointerCapture(e.pointerId);
     el.canvas.classList.add('grabbing');
+    if (pointers.size === 1) {
+      pointer.down = true; pointer.moved = 0;
+      const orbit = viewing() && (e.button === 2 || e.shiftKey);
+      beginGesture(orbit ? 'orbit' : 'spin');
+    } else if (viewing()) {
+      beginGesture('orbit'); // 두 손가락
+      pointer.moved = 99;    // 두 손가락 제스처는 탭(지표 탐사)으로 치지 않는다
+    }
   });
   el.canvas.addEventListener('pointermove', (e) => {
-    if (!pointer.down || e.pointerId !== pointer.id) return;
-    const dx = e.clientX - pointer.x, dy = e.clientY - pointer.y;
+    if (!pointers.has(e.pointerId)) return;
+    pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    const [cx, cy] = centroid();
+    const dx = cx - pointer.x, dy = cy - pointer.y;
     const now = performance.now(), dt = Math.max(0.001, (now - pointer.t) / 1000);
-    pointer.x = e.clientX; pointer.y = e.clientY; pointer.t = now;
+    pointer.x = cx; pointer.y = cy; pointer.t = now;
     pointer.moved += Math.abs(dx) + Math.abs(dy);
-    const d = renderer.drag;
-    d.x += dx * 0.008;
-    d.y = Math.max(-1.1, Math.min(1.1, d.y + dy * 0.006));
-    d.vx = (dx * 0.008) / dt * 0.6 + d.vx * 0.4;
-    d.vy = (dy * 0.006) / dt * 0.6 + d.vy * 0.4;
+    if (pointer.mode === 'orbit') {
+      const c = renderer.cam;
+      c.yaw += dx * 0.006;
+      c.pitch = Math.max(-1.35, Math.min(1.35, c.pitch + dy * 0.005));
+      c.vyaw = (dx * 0.006) / dt * 0.6 + c.vyaw * 0.4;
+      c.vpitch = (dy * 0.005) / dt * 0.6 + c.vpitch * 0.4;
+      if (pointers.size >= 2) {
+        const dist = spread();
+        if (pointer.dist > 0 && dist > 0) renderer.zoom = Math.max(0.6, Math.min(2.4, renderer.zoom * dist / pointer.dist));
+        pointer.dist = dist;
+      }
+    } else {
+      const d = renderer.drag;
+      d.x += dx * 0.008;
+      d.y = Math.max(-1.1, Math.min(1.1, d.y + dy * 0.006));
+      d.vx = (dx * 0.008) / dt * 0.6 + d.vx * 0.4;
+      d.vy = (dy * 0.006) / dt * 0.6 + d.vy * 0.4;
+    }
     if (pointer.moved > 6) hideProbe();
   });
   const endPointer = (e) => {
-    if (!pointer.down || e.pointerId !== pointer.id) return;
+    if (!pointers.has(e.pointerId)) return;
+    pointers.delete(e.pointerId);
+    if (pointers.size) { beginGesture(pointer.mode); return; } // 손가락 하나를 먼저 떼도 튀지 않게
     pointer.down = false;
     el.canvas.classList.remove('grabbing');
-    if (performance.now() - pointer.t > 80) { renderer.drag.vx = renderer.drag.vy = 0; }
-    if (pointer.moved < 6 && e.type === 'pointerup' && (S.mode === 'world' || S.mode === 'duo')) doProbe(e.clientX, e.clientY);
+    if (performance.now() - pointer.t > 80) {
+      renderer.drag.vx = renderer.drag.vy = 0;
+      renderer.cam.vyaw = renderer.cam.vpitch = 0;
+    }
+    if (pointer.moved < 6 && pointer.mode === 'spin' && e.type === 'pointerup' && viewing()) doProbe(e.clientX, e.clientY);
   };
   el.canvas.addEventListener('pointerup', endPointer);
   el.canvas.addEventListener('pointercancel', endPointer);
   el.canvas.addEventListener('wheel', (e) => {
-    if (!renderer || (S.mode !== 'world' && S.mode !== 'duo')) return;
+    if (!renderer || !viewing()) return;
     e.preventDefault();
     renderer.zoom = Math.max(0.6, Math.min(2.4, renderer.zoom * Math.exp(-e.deltaY * 0.0012)));
     hideProbe();
   }, { passive: false });
+  // 더블클릭(더블탭): 처음 시점으로
+  el.canvas.addEventListener('dblclick', () => { if (renderer && viewing()) resetView(); });
+  function resetView() { S.viewReset = true; }
 
   let probeTimer;
   function doProbe(x, y) {

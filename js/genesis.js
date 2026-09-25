@@ -459,6 +459,9 @@
     if (biome.id === 'gas') gasPalette(v, p.eqt, p.method, root.fork('palette'));
     if (biome.id === 'desert') { v.sea = Math.min(v.sea, 0.12); v.city = 0; v.ice = 1.5; v.clouds = Math.min(v.clouds, 0.08); } // 뜨거운 행성: 바다·극관·도시 불빛 없음
     v.lightCol = starColor(p.teff).map((c) => 0.45 + 0.55 * c);
+    // 행성에서 본 모항성의 실제 겉보기 반지름 (라디안, 태양 반지름 = 0.00465 AU)
+    v.starAng = /Pulsar/.test(p.method) ? 0.0025
+      : p.srad != null && p.a != null ? Math.min(0.14, Math.max(0.0025, 0.00465047 * p.srad / p.a)) : 0.006;
     v.seedOff = [rv.range(-50, 50), rv.range(-50, 50), rv.range(-50, 50)];
     v.warp = rv.range(0.5, 1.15);
     v.scale = v.type === 1 ? 1 : rv.range(1.5, 2.5) * 0.62; // 작을수록 대륙이 크다
