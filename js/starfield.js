@@ -4,7 +4,8 @@
   const NV = window.NV;
 
   // 행성 화면의 별 공간 (행성 반지름 = 1, 카메라는 행성 중심에서 6)
-  const SKY_NEAR = 7, SKY_MIN = 9, SKY_FAR = 70, SKY_SPEED = 1.5;
+  const SKY_NEAR = 7, SKY_MIN = 9, SKY_FAR = 70;
+  const SKY_SPIN = (Math.PI * 2) / 600; // 별 공간이 행성을 축으로 10분에 한 바퀴
 
   class Starfield {
     constructor(canvas) {
@@ -64,7 +65,7 @@
 
     /* 행성에 도착하면 지나온 별들을 행성 주변 공간(월드 좌표)의 점으로 바꾼다.
      * 행성 셰이더와 같은 카메라(시점 회전 V, 초점거리, 화면 이동)로 투영하므로 시점을 돌리면 함께 돌고,
-     * 거리가 다르니 가까운 별일수록 더 크게 움직인다(시차). 예전처럼 천천히 다가오며 흐른다. */
+     * 별 공간은 행성을 축으로 아주 천천히 돌아서, 가까운 별은 조금 빨리 먼 별은 느리게 옆으로 흘러간다(시차). */
     _enterSky(view) {
       const W = this.w, H = this.h, F = view.focal, V = view.V, [sx, sy] = view.shift, C = view.cam;
       const cx = W / 2, cy = H / 2, scale = Math.max(W, H) * 0.5;
@@ -113,27 +114,19 @@
     }
 
     _drawSky(dt) {
-      const ctx = this.ctx, view = this.view, V = view.V;
-      // 카메라가 바라보는 방향(월드)으로 별들이 천천히 다가온다
-      const fw = [-V[6], -V[7], -V[8]], step = SKY_SPEED * dt;
-      for (const s of this.sky) {
-        const p = s.p;
-        p[0] -= fw[0] * step; p[1] -= fw[1] * step; p[2] -= fw[2] * step;
-        s.tw += s.tws * dt;
+      const ctx = this.ctx, view = this.view;
+      const c = Math.cos(SKY_SPIN * dt), s = Math.sin(SKY_SPIN * dt);
+      for (const st of this.sky) {
+        const p = st.p;
+        const x = p[0] * c + p[2] * s;
+        p[2] = -p[0] * s + p[2] * c; p[0] = x;
+        st.tw += st.tws * dt;
         const q = this._project(p, view);
-        if (!q) {
-          // 카메라를 지나쳤거나 너무 가까워진 별은 멀리서 다시 태어난다
-          const d = Math.hypot(p[0], p[1], p[2]);
-          if (d < SKY_MIN * 0.7 || V[6] * p[0] + V[7] * p[1] + V[8] * p[2] - view.cam > -0.5) {
-            const n = this._randPoint(), k = SKY_FAR / Math.hypot(n[0], n[1], n[2]);
-            s.p = [n[0] * k, n[1] * k, n[2] * k];
-          }
-          continue;
-        }
+        if (!q) continue;
         const near = Math.max(0, Math.min(1, (SKY_FAR - q[2]) / (SKY_FAR - SKY_NEAR)));
-        const a = Math.min(1, (0.35 + near * 0.9) * (0.75 + 0.25 * Math.sin(s.tw)));
-        const size = Math.min(3.4 * this.dpr, s.s * (0.5 + near * 1.6) * this.dpr);
-        ctx.fillStyle = `rgba(${s.col},${a})`;
+        const a = Math.min(1, (0.35 + near * 0.9) * (0.75 + 0.25 * Math.sin(st.tw)));
+        const size = Math.min(3.4 * this.dpr, st.s * (0.5 + near * 1.6) * this.dpr);
+        ctx.fillStyle = `rgba(${st.col},${a})`;
         ctx.fillRect(q[0] - size / 2, q[1] - size / 2, size, size);
       }
     }
