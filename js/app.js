@@ -184,8 +184,10 @@
     el.hint.innerHTML = n
       ? `지평선 너머에 <b>${esc(w.planet)}</b> 행성이 떠오르고 있어요 · ${esc(w.biome.name)}`
       : '한 글자씩 입력할 때마다 지평선 너머의 행성이 바뀝니다';
-    if (music.playing) playMusic(w);
+    // 입력 중에는 곡을 매번 새로 작곡하지 않도록 잠시 멈췄을 때만 바꾼다
+    if (music.playing) { clearTimeout(musicTimer); musicTimer = setTimeout(() => playMusic(w).catch(() => {}), 800); }
   }
+  let musicTimer;
   el.name.addEventListener('input', () => {
     clearTimeout(previewTimer);
     previewTimer = setTimeout(() => updatePreview(false), 90);
@@ -273,7 +275,7 @@
     renderPanel(w);
     saveAtlas(w);
     document.title = `${w.planet} — ${w.owner}의 행성 · NAMEVERSE`;
-    if (music.playing) playMusic(w);
+    if (music.playing) playMusic(w).catch(console.error);
     showDragHint();
   }
 
@@ -367,7 +369,7 @@
     if (renderer) { renderer.zoom = 1; renderer.setWorlds([A, B]); }
     saveAtlas(B); saveAtlas(A);
     document.title = `${A.owner} × ${B.owner} 행성 궁합 ${S.harmony.score}% · NAMEVERSE`;
-    if (music.playing) playMusic(A);
+    if (music.playing) playMusic(A).catch(console.error);
   }
 
   function renderDuo(A, B, hm) {
@@ -411,7 +413,10 @@
       title: w.planet,
       artist: `${w.owner}의 행성 · ${w.biome.name}`,
       album: 'NAMEVERSE · 행성의 노래',
-      artwork: art ? [{ src: art, sizes: '512x512', type: 'image/jpeg' }] : [{ src: 'apple-touch-icon.png', sizes: '180x180', type: 'image/png' }],
+      artwork: [
+        ...(art ? [{ src: art, sizes: '512x512', type: 'image/jpeg' }] : []),
+        { src: new URL('apple-touch-icon.png', location.href).href, sizes: '180x180', type: 'image/png' },
+      ],
     });
   }
   function playMusic(w) {
@@ -420,6 +425,7 @@
     if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing';
     return p;
   }
+  music.onBusy = (on) => { if (on) toast('행성의 노래를 작곡하는 중…', 8000); else el.toast.classList.remove('on'); };
   if ('mediaSession' in navigator) {
     try {
       navigator.mediaSession.setActionHandler('play', () => { if (!music.playing) toggleMusic(); });
@@ -433,11 +439,14 @@
       if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused';
     } else {
       const w = S.world || S.preview;
+      const pr = playMusic(w); // 제스처 안에서 곧바로 재생을 시작해야 한다
+      syncMusicUI();
       try {
-        await playMusic(w);
-        toast(`♪ ${w.planet}의 노래 · ${MODE_KO[w.music.mode] || ''} 선법 · ${w.music.bpm} BPM`);
+        await pr;
+        if (music.playing) toast(`♪ ${w.planet}의 노래 · ${MODE_KO[w.music.mode] || ''} 선법 · ${w.music.bpm} BPM`);
       } catch (e) {
         console.error(e);
+        music.stop();
         toast('이 브라우저에서는 소리를 재생할 수 없어요');
       }
     }

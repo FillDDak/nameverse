@@ -1,4 +1,4 @@
-/* NAMEVERSE — 행성마다 고유한 주제가를 Web Audio로 실시간 작곡한다 */
+/* NAMEVERSE — 행성마다 고유한 주제가를 Web Audio로 작곡해 반복 재생되는 한 곡으로 만든다 */
 (function () {
   'use strict';
   const NV = window.NV;
@@ -9,43 +9,172 @@
   };
   const mtof = (m) => 440 * Math.pow(2, (m - 69) / 12);
 
+  const SR = 32000;       // 앰비언트라 32kHz면 충분하고 합성도 빠르다
+  const CYCLES = 2;       // 화성 진행을 두 바퀴 돌면 한 곡이 끝나고 처음으로 이어진다
+  const TAIL = 4.5;       // 잔향·딜레이 꼬리: 곡 앞부분에 겹쳐서 이음새 없이 반복되게 한다
+
+  // Freeverb (Jezar): 콤 필터 8개 + 올패스 4개. ConvolverNode보다 훨씬 가볍다
+  function freeverb(inp, n, sr, spread) {
+    const k = sr / 44100, room = 0.84, damp = 0.25, out = new Float32Array(n);
+    for (const t of [1116, 1188, 1277, 1356, 1422, 1491, 1557, 1617]) {
+      const len = Math.round((t + spread) * k), buf = new Float32Array(len);
+      let idx = 0, st = 0;
+      for (let i = 0; i < n; i++) {
+        const y = buf[idx];
+        st = y * (1 - damp) + st * damp;
+        buf[idx] = inp[i] + st * room;
+        out[i] += y;
+        if (++idx >= len) idx = 0;
+      }
+    }
+    for (const t of [556, 441, 341, 225]) {
+      const len = Math.round((t + spread) * k), buf = new Float32Array(len);
+      let idx = 0;
+      for (let i = 0; i < n; i++) {
+        const bo = buf[idx], x = out[i];
+        out[i] = bo - x;
+        buf[idx] = x + bo * 0.5;
+        if (++idx >= len) idx = 0;
+      }
+    }
+    return out;
+  }
+
+  // 16비트 스테레오 WAV
+  function wav(chs, n, sr) {
+    const buf = new ArrayBuffer(44 + n * 4), v = new DataView(buf);
+    const str = (o, s) => { for (let i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i)); };
+    str(0, 'RIFF'); v.setUint32(4, 36 + n * 4, true); str(8, 'WAVE'); str(12, 'fmt ');
+    v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 2, true); v.setUint32(24, sr, true);
+    v.setUint32(28, sr * 4, true); v.setUint16(32, 4, true); v.setUint16(34, 16, true); str(36, 'data'); v.setUint32(40, n * 4, true);
+    let o = 44;
+    for (let i = 0; i < n; i++) {
+      for (let c = 0; c < 2; c++) { v.setInt16(o, Math.max(-1, Math.min(1, chs[c][i])) * 32767, true); o += 2; }
+    }
+    return new Blob([buf], { type: 'audio/wav' });
+  }
+  // iOS는 사용자가 누른 순간에 <audio>를 한 번 재생해 둬야 이후에 코드로 곡을 바꿔 틀 수 있다
+  const SILENCE = URL.createObjectURL(wav([new Float32Array(800), new Float32Array(800)], 800, 8000));
+
+  /* 행성의 노래를 미리 한 곡으로 합성해 <audio>로 튼다.
+   * 실제 오디오 파일처럼 재생되므로 아이폰 무음 모드에서도 들리고, 제어센터·잠금 화면에도 뜬다. */
   class Music {
-    constructor() { this.ctx = null; this.playing = false; this.level = 0; }
+    constructor() { this.playing = false; this.level = 0; this.el = null; this.cache = new Map(); this.token = 0; }
 
-    _init() {
-      const AC = window.AudioContext || window.webkitAudioContext;
-      if (!AC) throw new Error('Web Audio 미지원');
-      // iOS: 무음 스위치와 상관없이 음악처럼 재생
+    _element() {
+      if (this.el) return this.el;
+      // iOS 17+: 이 페이지의 소리를 '음악 재생'으로 취급
       try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch (e) { /* 미지원 */ }
-      const ctx = this.ctx = new AC();
-      this.master = ctx.createGain(); this.master.gain.value = 0;
-      const comp = ctx.createDynamicsCompressor();
-      comp.threshold.value = -18; comp.ratio.value = 3;
-      this.analyser = ctx.createAnalyser(); this.analyser.fftSize = 512;
-      this.master.connect(comp); comp.connect(this.analyser);
-      this.buf = new Uint8Array(this.analyser.fftSize);
+      const el = this.el = document.createElement('audio');
+      el.loop = true;
+      el.preload = 'auto';
+      el.setAttribute('playsinline', '');
+      return el;
+    }
 
-      // 소리를 <audio> 요소로 내보내야 아이폰 제어센터·잠금 화면에 '지금 재생 중'으로 뜬다
-      if (ctx.createMediaStreamDestination) {
-        this.stream = ctx.createMediaStreamDestination();
-        this.analyser.connect(this.stream);
-        this.el = document.createElement('audio');
-        this.el.setAttribute('playsinline', '');
-        this.el.srcObject = this.stream.stream;
-      } else {
-        this.analyser.connect(ctx.destination);
+    async play(world) {
+      const el = this._element();
+      const p = world.music;
+      const tok = ++this.token;
+      this.playing = true;
+      // 같은 곡을 동시에 두 번 합성하지 않도록 진행 중인 합성도 캐시에 둔다
+      let entry = this.cache.get(p.seed);
+      if (!entry) {
+        entry = { pr: this._render(p) };
+        entry.pr.then((t) => { entry.track = t; }, () => this.cache.delete(p.seed));
+        this.cache.set(p.seed, entry);
+        for (const [k, old] of this.cache) {
+          if (this.cache.size <= 3) break;
+          if (k === p.seed) continue;
+          this.cache.delete(k);
+          if (old.track) URL.revokeObjectURL(old.track.url);
+        }
       }
+      if (!entry.track) {
+        // 합성하는 동안 제스처가 끊기지 않도록 무음으로 먼저 재생을 시작해 둔다
+        if (el.paused) { el.src = SILENCE; el.play().catch(() => {}); }
+        if (this.onBusy) this.onBusy(true);
+        try { await entry.pr; } finally { if (tok === this.token && this.onBusy) this.onBusy(false); }
+        if (tok !== this.token || !this.playing) return;
+      }
+      this.track = entry.track;
+      if (el.src !== entry.track.url) el.src = entry.track.url;
+      await el.play();
+    }
 
-      // 잔향: 지수 감쇠 노이즈로 임펄스 응답을 직접 만든다
-      this.reverb = ctx.createConvolver();
-      const len = ctx.sampleRate * 4, ir = ctx.createBuffer(2, len, ctx.sampleRate);
-      for (let ch = 0; ch < 2; ch++) {
-        const d = ir.getChannelData(ch);
-        for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 3.2);
+    stop() {
+      this.playing = false;
+      this.token++;
+      if (this.el) this.el.pause();
+    }
+
+    getLevel() {
+      const el = this.el, t = this.track;
+      let target = 0;
+      if (this.playing && el && !el.paused && t) target = t.env[Math.floor(el.currentTime * t.envRate) % t.env.length] || 0;
+      this.level += (target - this.level) * 0.2;
+      return this.level;
+    }
+
+    // 오프라인으로 한 곡을 합성: 끝부분의 잔향을 앞에 겹쳐 이음새 없는 반복 곡으로 만든다
+    async _render(p) {
+      const OAC = window.OfflineAudioContext || window.webkitOfflineAudioContext;
+      if (!OAC) throw new Error('오프라인 오디오 미지원');
+      const stepDur = 60 / p.bpm / 2;
+      const steps = 16 * p.progression.length * CYCLES;
+      const loopN = Math.round(steps * stepDur * SR), tailN = Math.round(TAIL * SR);
+      // 채널 0·1: 원음, 2·3: 잔향으로 보낼 소리 (잔향은 아래에서 JS로 직접 계산한다)
+      const ctx = new OAC(4, loopN + tailN, SR);
+      const eng = Object.create(Music.prototype);
+      eng._build(ctx);
+      eng.p = p;
+      eng.scale = MODES[p.mode] || MODES.aeolian;
+      eng.stepDur = stepDur;
+      eng.delay.delayTime.value = stepDur * 3;
+      eng.rand = NV.makeRng('music-live/' + p.seed);
+      // 곡 도입부 규칙(처음 몇 박은 아르페지오 없음)을 건너뛰도록 한 바퀴 뒤에서 시작한 것처럼 센다
+      const offset = 16 * p.progression.length;
+      for (let s = 0; s < steps; s++) eng._step(s + offset, s * stepDur);
+      const out = await new Promise((res, rej) => {
+        ctx.oncomplete = (e) => res(e.renderedBuffer);
+        const pr = ctx.startRendering();
+        if (pr && pr.catch) pr.catch(rej);
+      });
+      const chs = [out.getChannelData(0), out.getChannelData(1)];
+      const N = loopN + tailN;
+      [out.getChannelData(2), out.getChannelData(3)].forEach((send, c) => {
+        const wet = freeverb(send, N, SR, c ? 23 : 0);
+        for (let i = 0; i < N; i++) chs[c][i] += wet[i] * 0.0145;
+      });
+      let peak = 0;
+      for (const d of chs) {
+        for (let i = 0; i < tailN; i++) d[i] += d[loopN + i];
+        for (let i = 0; i < loopN; i++) peak = Math.max(peak, Math.abs(d[i]));
       }
-      this.reverb.buffer = ir;
-      const wet = ctx.createGain(); wet.gain.value = 0.55;
-      this.reverb.connect(wet); wet.connect(this.master);
+      const gain = peak > 0 ? 0.85 / peak : 1;
+      for (const d of chs) for (let i = 0; i < loopN; i++) d[i] *= gain;
+      // 행성 대기가 음악에 맞춰 숨 쉬도록 음량 곡선을 미리 계산해 둔다 (초당 20칸)
+      const envRate = 20, win = SR / envRate, env = new Float32Array(Math.ceil(loopN / win));
+      for (let k = 0; k < env.length; k++) {
+        let s = 0; const a = k * win, b = Math.min(loopN, a + win);
+        for (let i = a; i < b; i++) s += chs[0][i] * chs[0][i];
+        env[k] = Math.min(1, Math.sqrt(s / Math.max(1, b - a)) * 4);
+      }
+      return { url: URL.createObjectURL(wav(chs, loopN, SR)), env, envRate };
+    }
+
+    _build(ctx) {
+      this.ctx = ctx;
+      const stereo = () => { const g = ctx.createGain(); g.channelCount = 2; g.channelCountMode = 'explicit'; return g; };
+      const merger = ctx.createChannelMerger(4);
+      ctx.destination.channelInterpretation = 'discrete';
+      merger.connect(ctx.destination);
+      const route = (node, ch) => { const sp = ctx.createChannelSplitter(2); node.connect(sp); sp.connect(merger, 0, ch); sp.connect(merger, 1, ch + 1); };
+      this.master = stereo(); this.master.gain.value = 0.9;
+      route(this.master, 0);
+      // 잔향으로 보낼 소리 (합성이 끝난 뒤 freeverb로 처리)
+      this.reverb = stereo();
+      route(this.reverb, 2);
 
       // 핑퐁 느낌의 딜레이
       this.delay = ctx.createDelay(2);
@@ -58,77 +187,12 @@
       this.dry.connect(this.master); this.dry.connect(this.reverb);
     }
 
-    // <audio> 재생이 막히면 예전처럼 스피커로 바로 보낸다
-    _direct() {
-      if (!this.el) return;
-      try { this.analyser.disconnect(this.stream); } catch (e) { /* 이미 끊김 */ }
-      this.analyser.connect(this.ctx.destination);
-      this.el = null;
-    }
-
-    async play(world) {
-      if (!this.ctx) this._init();
-      clearTimeout(this.pauseTimer);
-      // 사용자 제스처가 살아 있을 때 곧바로 play()를 불러야 한다 (await 이전)
-      if (this.el) {
-        const pr = this.el.play();
-        if (pr) pr.catch(() => this._direct());
-      }
-      await this.ctx.resume();
-      const p = world.music;
-      this.p = p;
-      this.scale = MODES[p.mode] || MODES.aeolian;
-      this.stepDur = 60 / p.bpm / 2;
-      this.delay.delayTime.value = this.stepDur * 3;
-      this.rand = NV.makeRng('music-live/' + p.seed);
-      const t = this.ctx.currentTime;
-      this.master.gain.cancelScheduledValues(t);
-      this.master.gain.setValueAtTime(this.master.gain.value, t);
-      this.master.gain.linearRampToValueAtTime(0.9, t + 2.5);
-      this.step = 0;
-      this.nextTime = t + 0.08;
-      this.playing = true;
-      clearInterval(this.timer);
-      this.timer = setInterval(() => this._schedule(), 40);
-      this._schedule();
-    }
-
-    stop() {
-      if (!this.ctx || !this.playing) return;
-      this.playing = false;
-      const t = this.ctx.currentTime;
-      this.master.gain.cancelScheduledValues(t);
-      this.master.gain.setValueAtTime(this.master.gain.value, t);
-      this.master.gain.linearRampToValueAtTime(0, t + 1.2);
-      clearInterval(this.timer);
-      const el = this.el;
-      if (el) this.pauseTimer = setTimeout(() => el.pause(), 1300);
-    }
-
-    getLevel() {
-      if (!this.ctx || !this.playing) { this.level *= 0.9; return this.level; }
-      this.analyser.getByteTimeDomainData(this.buf);
-      let s = 0;
-      for (let i = 0; i < this.buf.length; i++) { const x = (this.buf[i] - 128) / 128; s += x * x; }
-      const rms = Math.sqrt(s / this.buf.length);
-      this.level += (Math.min(1, rms * 5) - this.level) * 0.2;
-      return this.level;
-    }
-
     _note(deg, oct) {
       const sc = this.scale, n = sc.length;
       const o = Math.floor(deg / n);
       return this.p.root + 12 * (oct + o) + sc[((deg % n) + n) % n];
     }
     _chord(deg) { return [0, 2, 4, 6].map((i) => this._note(deg + i, 0)); }
-
-    _schedule() {
-      while (this.nextTime < this.ctx.currentTime + 0.25) {
-        this._step(this.step, this.nextTime);
-        this.nextTime += this.stepDur;
-        this.step++;
-      }
-    }
 
     _step(step, t) {
       const p = this.p, r = this.rand;
