@@ -1,0 +1,612 @@
+/* NAMEVERSE — 화면 흐름과 상호작용 */
+(function () {
+  'use strict';
+  const NV = window.NV;
+  const $ = (s) => document.querySelector(s);
+  const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const coarse = matchMedia('(pointer: coarse)').matches;
+
+  const EXAMPLES = ['세종대왕', '이순신', '고양이', '떡볶이', '사랑', 'Einstein', '우리 엄마', '월요일'];
+  const DEFAULT_PREVIEW = 'NAMEVERSE';
+  const ATLAS_KEY = 'nameverse.atlas.v1';
+  const MODE_KO = { dorian: '도리안', lydian: '리디안', phrygian: '프리지안', mixolydian: '믹솔리디안', aeolian: '에올리안', ionian: '이오니안' };
+
+  const el = {
+    body: document.body, intro: $('#intro'), form: $('#form'), name: $('#name'), hint: $('#live-hint'), examples: $('#examples'),
+    scan: $('#scan'), scanName: $('#scan-name'), scanLine: $('#scan-line'), scanCoord: $('#scan-coord'),
+    panel: $('#panel'), duoPanel: $('#duo-panel'), duoLabels: $('#duo-labels'),
+    probe: $('#probe'), marker: $('#probe-marker'), atlas: $('#atlas'), atlasList: $('#atlas-list'), atlasCount: $('#atlas-count'),
+    modalDuo: $('#modal-duo'), duoForm: $('#duo-form'), duoName: $('#duo-name'),
+    toast: $('#toast'), hintDrag: $('#hint-drag'), sound: $('#btn-sound'), canvas: $('#planet'),
+  };
+
+  const S = {
+    mode: 'intro', world: null, partner: null, harmony: null, preview: null,
+    scanToken: 0, scale: Math.min(devicePixelRatio || 1, coarse ? 1 : 1.5), maxScale: Math.min(devicePixelRatio || 1, coarse ? 1.25 : 1.75),
+  };
+
+  /* ───────────── 엔진 ───────────── */
+  const stars = new NV.Starfield($('#stars'));
+  const music = new NV.Music();
+  let renderer = null;
+  try {
+    renderer = new NV.PlanetRenderer(el.canvas);
+    renderer.layout = layout;
+  } catch (e) {
+    console.error(e);
+    setTimeout(() => toast('이 브라우저는 WebGL을 지원하지 않아 행성을 그릴 수 없어요. 기록은 계속 볼 수 있습니다.', 6000), 400);
+  }
+
+  function layout(W, H) {
+    const cw = innerWidth, ch = innerHeight, mobile = cw <= 760;
+    if (S.mode === 'intro') {
+      const ext = S.preview ? S.preview.visual.extent : 1.3;
+      const R = mobile ? 0.62 : 0.92;           // 지평선 행성의 반지름 (화면 높이 단위)
+      const top = mobile ? -0.2 : -0.24;        // 행성 윗부분이 걸리는 높이
+      return [{ x: 0, y: 0, w: W, h: H, shift: [0, top - R], fit: (R * ext) / 1.01 }];
+    }
+    if (S.mode === 'duo') {
+      const half = Math.floor(W / 2);
+      let cy, fit;
+      if (mobile) {
+        const area = ch * 0.5 - 60;
+        cy = 60 + area / 2 + 20;
+        fit = Math.min((0.8 * area) / 2 / ch, (0.42 * cw) / 2 / ch);
+      } else {
+        const panelH = el.duoPanel.offsetHeight || 320;
+        const area = ch - panelH - 130;
+        cy = 120 + area / 2;
+        fit = Math.min(0.34, (0.98 * area) / 2 / ch, (0.44 * cw) / 2 / ch);
+      }
+      const shift = [0, 0.5 - cy / ch];
+      return [
+        { x: 0, y: 0, w: half, h: H, shift, fit },
+        { x: half, y: 0, w: W - half, h: H, shift, fit },
+      ];
+    }
+    // 단일 행성
+    if (mobile) {
+      const area = ch * 0.5 - 56;
+      const cy = 56 + area / 2;
+      return [{ x: 0, y: 0, w: W, h: H, shift: [0, 0.5 - cy / ch], fit: Math.min((0.92 * area) / 2 / ch, (0.46 * cw) / ch) }];
+    }
+    const panelW = Math.min(440, cw * 0.4) + 22;
+    const avail = cw - panelW;
+    return [{ x: 0, y: 0, w: W, h: H, shift: [-panelW / 2 / ch, -0.01], fit: Math.min(0.4, (0.44 * avail) / ch) }];
+  }
+
+  function resize() {
+    stars.resize();
+    if (renderer) renderer.resize(Math.round(innerWidth * S.scale), Math.round(innerHeight * S.scale));
+  }
+  addEventListener('resize', resize);
+
+  /* ───────────── 렌더 루프 (적응형 해상도) ───────────── */
+  const perf = { acc: 0, n: 0, cool: 0 };
+  let last = performance.now();
+  function frame(now) {
+    const dt = Math.min(0.1, (now - last) / 1000);
+    stars.frame(Math.min(0.3, (now - last) / 1000), now / 1000);
+    last = now;
+    if (renderer) {
+      const d = renderer.drag;
+      if (!pointer.down) {
+        d.x += d.vx * dt; d.y += d.vy * dt;
+        const damp = Math.pow(0.04, dt);
+        d.vx *= damp; d.vy *= damp;
+        d.y += (0 - d.y) * Math.min(1, dt * 0.35);
+        d.y = Math.max(-1.1, Math.min(1.1, d.y));
+      }
+      renderer.pulse = music.getLevel();
+      renderer.render(now / 1000);
+      // 프레임이 느리면 해상도를 낮추고, 여유가 있으면 다시 높인다
+      perf.acc += dt; perf.n++; perf.cool -= dt;
+      if (perf.n >= 40) {
+        const avg = perf.acc / perf.n;
+        perf.acc = 0; perf.n = 0;
+        if (perf.cool <= 0) {
+          if (avg > 1 / 40 && S.scale > 0.5) { S.scale = Math.max(0.5, S.scale * 0.8); resize(); perf.cool = 1.5; }
+          else if (avg < 1 / 57 && S.scale < S.maxScale) { S.scale = Math.min(S.maxScale, S.scale * 1.1); resize(); perf.cool = 4; }
+        }
+      }
+    }
+    requestAnimationFrame(frame);
+  }
+
+  /* ───────────── 공통 UI ───────────── */
+  let toastTimer;
+  function toast(msg, ms = 2600) {
+    el.toast.textContent = msg;
+    el.toast.classList.add('on');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => el.toast.classList.remove('on'), ms);
+  }
+
+  function setAccent(w) {
+    const root = document.documentElement.style;
+    // 너무 어두운 대기색은 글자 강조색으로 쓰기 어려우니 밝게 끌어올린다
+    const c = w.visual.atmo.map((x) => Math.min(1, x * 0.75 + 0.25));
+    root.setProperty('--accent', NV.toCss(c));
+    root.setProperty('--accent-rgb', c.map((x) => Math.round(x * 255)).join(','));
+    stars.setTint(w.visual.atmo);
+  }
+
+  function setMode(m) {
+    S.mode = m;
+    el.body.className = 'mode-' + m;
+  }
+
+  /* ───────────── 라우팅: #n=이름&m=상대 ───────────── */
+  function go(n, m) {
+    const p = new URLSearchParams();
+    p.set('n', n);
+    if (m) p.set('m', m);
+    const h = '#' + p.toString();
+    if (location.hash === h) route(); else location.hash = h;
+  }
+  function route() {
+    const p = new URLSearchParams(location.hash.slice(1));
+    const n = NV.normalizeName(p.get('n') || '');
+    const m = NV.normalizeName(p.get('m') || '');
+    closeOverlays();
+    if (n && m) enterDuo(n, m);
+    else if (n) enterWorld(n);
+    else showIntro();
+  }
+  addEventListener('hashchange', route);
+
+  /* ───────────── 1. 입장 ───────────── */
+  function showIntro() {
+    S.scanToken++;
+    setMode('intro');
+    S.world = S.partner = null;
+    el.intro.hidden = false;
+    requestAnimationFrame(() => el.intro.classList.remove('leaving'));
+    el.panel.hidden = el.duoPanel.hidden = el.duoLabels.hidden = el.scan.hidden = true;
+    stars.warpTarget = 0;
+    document.title = 'NAMEVERSE — 당신의 이름은 이미 하나의 행성입니다';
+    updatePreview(true);
+  }
+
+  let previewTimer;
+  function updatePreview(force) {
+    const n = NV.normalizeName(el.name.value);
+    const w = NV.genesis(n || DEFAULT_PREVIEW);
+    if (!force && S.preview && S.preview.key === w.key) return;
+    S.preview = w;
+    if (renderer) {
+      renderer.zoom = 1;
+      renderer.setWorlds([w], { grow: false });
+    }
+    setAccent(w);
+    el.hint.innerHTML = n
+      ? `지평선 너머에 <b>${esc(w.planet)}</b> 행성이 떠오르고 있어요 · ${esc(w.biome.name)}`
+      : '한 글자씩 입력할 때마다 지평선 너머의 행성이 바뀝니다';
+    if (music.playing) music.play(w);
+  }
+  el.name.addEventListener('input', () => {
+    clearTimeout(previewTimer);
+    previewTimer = setTimeout(() => updatePreview(false), 90);
+  });
+
+  el.form.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const n = NV.normalizeName(el.name.value);
+    if (!n) {
+      el.form.classList.remove('shake'); void el.form.offsetWidth; el.form.classList.add('shake');
+      el.name.focus();
+      return;
+    }
+    el.name.blur();
+    go(n);
+  });
+
+  el.examples.innerHTML = '<span class="lbl">이런 이름은 어때요?</span>' +
+    EXAMPLES.map((n) => `<button type="button" data-name="${esc(n)}">${esc(n)}</button>`).join('');
+  el.examples.addEventListener('click', (e) => {
+    const b = e.target.closest('button[data-name]');
+    if (!b) return;
+    el.name.value = b.dataset.name;
+    updatePreview(false);
+    setTimeout(() => go(b.dataset.name), 260);
+  });
+
+  /* ───────────── 2. 관측 연출 ───────────── */
+  function scramble(node, finalText, ms) {
+    const glyphs = '0123456789ABCDEF+−°′hm';
+    const start = performance.now();
+    const tick = () => {
+      const k = Math.min(1, (performance.now() - start) / ms);
+      const fixed = Math.floor(finalText.length * k);
+      node.textContent = finalText.slice(0, fixed) + [...finalText.slice(fixed)].map((ch) => (ch === ' ' || ch === '·' ? ch : glyphs[(Math.random() * glyphs.length) | 0])).join('');
+      if (k < 1 && !el.scan.hidden) requestAnimationFrame(tick);
+    };
+    tick();
+  }
+
+  async function scan(worlds) {
+    const token = ++S.scanToken;
+    setMode('scan');
+    hideProbe();
+    el.intro.classList.add('leaving');
+    el.panel.hidden = el.duoPanel.hidden = el.duoLabels.hidden = true;
+    if (renderer) renderer.setWorlds([]);
+    setAccent(worlds[0]);
+    stars.warpTarget = reducedMotion ? 0.15 : 1;
+    el.scan.hidden = false;
+
+    const title = worlds.map((w) => w.owner).join(' × ');
+    el.scanName.innerHTML = [...title].map((ch, i) => `<span style="animation-delay:${i * 45}ms">${ch === ' ' ? '&nbsp;' : esc(ch)}</span>`).join('');
+    const w = worlds[0];
+    scramble(el.scanCoord, `RA ${w.coords.ra} · DEC ${w.coords.dec} · ${w.catalog}`, 2000);
+    const lines = worlds.length > 1
+      ? ['두 이름의 파동을 겹쳐 보는 중…', '두 행성의 궤도를 계산하는 중…', '중력의 공명을 측정하는 중…', '쌍성계 포착!']
+      : ['이름의 파동을 분석하는 중…', '주파수를 우주 좌표로 바꾸는 중…', `${w.constellation}자리 방향을 관측하는 중…`, '행성 신호 포착!'];
+    for (const line of lines) {
+      if (token !== S.scanToken) return false;
+      el.scanLine.textContent = line;
+      await sleep(620);
+    }
+    if (token !== S.scanToken) return false;
+    stars.warpTarget = 0;
+    el.scan.hidden = true;
+    el.intro.hidden = true;
+    return true;
+  }
+
+  /* ───────────── 3. 행성 ───────────── */
+  async function enterWorld(n) {
+    const w = NV.genesis(n);
+    const same = S.world && S.world.key === w.key && (S.mode === 'world' || S.mode === 'duo');
+    if (!same && !(await scan([w]))) return;
+    S.world = w; S.partner = null;
+    setMode('world');
+    el.intro.hidden = true;
+    el.duoPanel.hidden = el.duoLabels.hidden = true;
+    setAccent(w);
+    if (renderer) {
+      renderer.zoom = 1;
+      renderer.setWorlds([w], { grow: !same });
+    }
+    renderPanel(w);
+    saveAtlas(w);
+    document.title = `${w.planet} — ${w.owner}의 행성 · NAMEVERSE`;
+    if (music.playing) music.play(w);
+    showDragHint();
+  }
+
+  const ICON = {
+    music: '<svg viewBox="0 0 24 24"><path d="M9 18V5l11-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="17" cy="16" r="3"/></svg>',
+    card: '<svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="9" cy="9" r="2"/><path d="M21 15l-5-5L5 21"/></svg>',
+    share: '<svg viewBox="0 0 24 24"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="M8.6 13.5l6.8 4M15.4 6.5l-6.8 4"/></svg>',
+    duo: '<svg viewBox="0 0 24 24"><circle cx="8" cy="12" r="4"/><circle cx="17" cy="12" r="3"/><ellipse cx="12" cy="12" rx="10.5" ry="4" transform="rotate(-15 12 12)"/></svg>',
+  };
+
+  function rarityBadge(r) {
+    const cls = { '신화': 'r-mythic', '전설': 'r-legendary', '희귀': 'r-rare' }[r.name] || '';
+    return `<span class="rarity ${cls}">★ ${r.name} 등급 <small>· 상위 ${r.topPct}% · ${r.en}</small></span>`;
+  }
+
+  function renderPanel(w) {
+    let i = 0;
+    const d = () => `style="animation-delay:${(i++ * 0.07 + 0.15).toFixed(2)}s"`;
+    el.panel.innerHTML = `
+      <div class="panel-inner">
+        <div class="reveal" ${d()}>${rarityBadge(w.rarity)}</div>
+        <h2 class="p-name reveal" ${d()}>${esc(w.planet)}</h2>
+        <p class="p-sub reveal" ${d()}><b>${esc(w.owner)}</b>의 행성 · ${esc(w.biome.name)}</p>
+        <p class="p-cat reveal" ${d()}>${esc(w.catalog)} · ${esc(w.constellation)}자리 · RA ${esc(w.coords.ra)} · DEC ${esc(w.coords.dec)}</p>
+        <div class="p-actions reveal" ${d()}>
+          <button class="act" data-act="music" aria-pressed="${music.playing}">${ICON.music}<span>${music.playing ? '노래 멈춤' : '행성의 노래'}</span></button>
+          <button class="act" data-act="card">${ICON.card}<span>엽서 저장</span></button>
+          <button class="act" data-act="share">${ICON.share}<span>공유하기</span></button>
+          <button class="act" data-act="duo">${ICON.duo}<span>궁합 보기</span></button>
+        </div>
+        <dl class="p-stats reveal" ${d()}>
+          ${w.stats.map((s, k) => `<div class="${k === w.stats.length - 1 ? 'wide' : ''}"><dt>${esc(s.k)}</dt><dd>${esc(s.v)}</dd></div>`).join('')}
+        </dl>
+        <div class="p-tags reveal" ${d()}>${w.tags.map((t) => `<span>${esc(t)}</span>`).join('')}</div>
+        <div class="p-role reveal" ${d()}>이 행성에서 당신의 직업은<br><b>${esc(w.role)}</b>입니다.</div>
+        <div class="p-lore">
+          ${w.lore.map((s) => `<section class="reveal" ${d()}><h4>${esc(s.title)}</h4><p>${esc(s.text)}</p></section>`).join('')}
+        </div>
+        <blockquote class="p-proverb reveal" ${d()}><p>“${esc(w.proverb)}”</p><cite>— ${esc(w.planet)}에 전해지는 오래된 속담</cite></blockquote>
+        <button class="ghost wide reveal" data-act="new" ${d()}>↺ 다른 이름의 행성 찾기</button>
+        <p class="p-foot">같은 이름을 입력하는 사람은 누구나 이 행성을 발견합니다.<br>행성을 드래그하거나 눌러서 표면을 탐사해 보세요.</p>
+      </div>`;
+    el.panel.hidden = false;
+    el.panel.scrollTop = 0;
+    // 애니메이션 재시작
+    el.panel.style.animation = 'none'; void el.panel.offsetWidth; el.panel.style.animation = '';
+  }
+
+  document.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-act]');
+    if (!b) return;
+    const act = b.dataset.act;
+    if (act === 'music') toggleMusic();
+    else if (act === 'card') savePostcard(b);
+    else if (act === 'share') shareLink();
+    else if (act === 'duo') openDuoModal();
+    else if (act === 'new') { location.hash = ''; setTimeout(() => { el.name.value = ''; updatePreview(true); el.name.focus(); }, 50); }
+    else if (act === 'back') go(S.world.owner);
+    else if (act === 'other') go(S.partner.owner);
+  });
+
+  /* ───────────── 4. 궁합 ───────────── */
+  function openDuoModal() {
+    el.modalDuo.hidden = false;
+    el.duoName.value = '';
+    setTimeout(() => el.duoName.focus(), 50);
+  }
+  el.duoForm.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const m = NV.normalizeName(el.duoName.value);
+    if (!m) { el.duoName.focus(); return; }
+    el.modalDuo.hidden = true;
+    go(S.world ? S.world.owner : m, S.world ? m : '');
+  });
+
+  async function enterDuo(a, b) {
+    const A = NV.genesis(a), B = NV.genesis(b);
+    if (!(await scan([A, B]))) return;
+    S.world = A; S.partner = B;
+    S.harmony = NV.harmony(A, B);
+    setMode('duo');
+    el.panel.hidden = true;
+    setAccent(A);
+    renderDuo(A, B, S.harmony);
+    if (renderer) { renderer.zoom = 1; renderer.setWorlds([A, B]); }
+    saveAtlas(B); saveAtlas(A);
+    document.title = `${A.owner} × ${B.owner} 행성 궁합 ${S.harmony.score}% · NAMEVERSE`;
+    if (music.playing) music.play(A);
+  }
+
+  function renderDuo(A, B, hm) {
+    const link = (w) => `#${new URLSearchParams({ n: w.owner })}`;
+    el.duoLabels.innerHTML = [A, B].map((w) => `<div><a href="${link(w)}"><b>${esc(w.planet)}</b><span>${esc(w.owner)}의 행성 · ${esc(w.biome.name)}</span></a></div>`).join('');
+    el.duoLabels.hidden = false;
+    el.duoPanel.innerHTML = `
+      <p class="duo-score"><b id="score-num">0</b><small>%</small></p>
+      <p class="duo-tier">${esc(hm.tier.name)}</p>
+      <p class="duo-desc">${esc(hm.tier.desc)}</p>
+      <ul class="duo-lines">${hm.lines.map((l) => `<li>${esc(l)}</li>`).join('')}</ul>
+      <div class="duo-actions">
+        <button class="ghost small" data-act="back">← ${esc(A.planet)}</button>
+        <button class="ghost small" data-act="card">엽서 저장</button>
+        <button class="ghost small" data-act="share">공유하기</button>
+        <button class="ghost small" data-act="other">${esc(B.planet)} →</button>
+      </div>`;
+    el.duoPanel.hidden = false;
+    const num = $('#score-num'), start = performance.now();
+    const tick = () => {
+      const k = Math.min(1, (performance.now() - start) / 1800);
+      num.textContent = Math.round(hm.score * (1 - Math.pow(1 - k, 3)));
+      if (k < 1) requestAnimationFrame(tick);
+    };
+    setTimeout(tick, 500);
+  }
+
+  /* ───────────── 소리 ───────────── */
+  async function toggleMusic() {
+    if (music.playing) music.stop();
+    else {
+      const w = S.world || S.preview;
+      try {
+        await music.play(w);
+        toast(`♪ ${w.planet}의 노래 · ${MODE_KO[w.music.mode] || ''} 선법 · ${w.music.bpm} BPM`);
+      } catch (e) {
+        console.error(e);
+        toast('이 브라우저에서는 소리를 재생할 수 없어요');
+      }
+    }
+    syncMusicUI();
+  }
+  function syncMusicUI() {
+    const on = music.playing;
+    el.sound.setAttribute('aria-pressed', on);
+    el.sound.querySelector('.lbl').textContent = on ? '소리 켬' : '소리 끔';
+    document.querySelectorAll('[data-act="music"]').forEach((b) => {
+      b.setAttribute('aria-pressed', on);
+      const s = b.querySelector('span'); if (s) s.textContent = on ? '노래 멈춤' : '행성의 노래';
+    });
+  }
+  el.sound.addEventListener('click', toggleMusic);
+
+  /* ───────────── 엽서 · 공유 ───────────── */
+  async function savePostcard(btn) {
+    if (!S.world) return;
+    if (!renderer) { toast('WebGL이 없어 엽서를 만들 수 없어요'); return; }
+    if (btn) btn.disabled = true;
+    toast('엽서를 인화하는 중…');
+    try {
+      const t = performance.now() / 1000;
+      const c = S.mode === 'duo' ? await NV.postcard.duo(S.world, S.partner, S.harmony, t) : await NV.postcard.single(S.world, t);
+      const blob = await new Promise((r) => c.toBlob(r, 'image/png'));
+      const fname = S.mode === 'duo' ? `NAMEVERSE_${S.world.owner}x${S.partner.owner}.png` : `NAMEVERSE_${S.world.owner}_${S.world.planet}.png`;
+      const file = new File([blob], fname.replace(/\s+/g, '_'), { type: 'image/png' });
+      if (coarse && navigator.canShare && navigator.canShare({ files: [file] })) {
+        try { await navigator.share({ files: [file], title: 'NAMEVERSE' }); toast('엽서를 공유했어요'); return; } catch (e) { if (e.name === 'AbortError') return; }
+      }
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = file.name;
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 5000);
+      toast('엽서를 저장했어요 ✦');
+    } catch (e) {
+      console.error(e);
+      toast('엽서를 만들지 못했어요');
+    } finally {
+      if (btn) btn.disabled = false;
+    }
+  }
+
+  async function shareLink() {
+    const url = location.href;
+    const w = S.world;
+    if (!w) return;
+    const text = S.mode === 'duo'
+      ? `${w.owner} × ${S.partner.owner} 행성 궁합 ${S.harmony.score}% — ${S.harmony.tier.name}`
+      : `내 이름으로 태어난 행성 「${w.planet}」 — ${w.biome.name}, ${w.rarity.name} 등급 (상위 ${w.rarity.topPct}%)`;
+    if (navigator.share && coarse) {
+      try { await navigator.share({ title: 'NAMEVERSE', text, url }); return; } catch (e) { if (e.name === 'AbortError') return; }
+    }
+    try {
+      await copyText(`${text}\n${url}`);
+      toast('링크를 복사했어요. 친구에게 보내 보세요!');
+    } catch (e) {
+      toast('복사하지 못했어요. 주소창의 링크를 공유해 주세요');
+    }
+  }
+  function copyText(s) {
+    if (navigator.clipboard && window.isSecureContext) return navigator.clipboard.writeText(s);
+    return new Promise((res, rej) => {
+      const ta = document.createElement('textarea');
+      ta.value = s; ta.style.position = 'fixed'; ta.style.opacity = '0';
+      document.body.appendChild(ta); ta.select();
+      const ok = document.execCommand('copy');
+      ta.remove();
+      ok ? res() : rej(new Error('copy failed'));
+    });
+  }
+
+  /* ───────────── 지표 탐사 (드래그 · 클릭) ───────────── */
+  const pointer = { down: false, id: null, x: 0, y: 0, moved: 0, t: 0 };
+  el.canvas.addEventListener('pointerdown', (e) => {
+    if (!renderer || S.mode === 'scan') return;
+    pointer.down = true; pointer.id = e.pointerId;
+    pointer.x = e.clientX; pointer.y = e.clientY; pointer.moved = 0; pointer.t = performance.now();
+    renderer.drag.vx = renderer.drag.vy = 0;
+    el.canvas.setPointerCapture(e.pointerId);
+    el.canvas.classList.add('grabbing');
+  });
+  el.canvas.addEventListener('pointermove', (e) => {
+    if (!pointer.down || e.pointerId !== pointer.id) return;
+    const dx = e.clientX - pointer.x, dy = e.clientY - pointer.y;
+    const now = performance.now(), dt = Math.max(0.001, (now - pointer.t) / 1000);
+    pointer.x = e.clientX; pointer.y = e.clientY; pointer.t = now;
+    pointer.moved += Math.abs(dx) + Math.abs(dy);
+    const d = renderer.drag;
+    d.x += dx * 0.008;
+    d.y = Math.max(-1.1, Math.min(1.1, d.y + dy * 0.006));
+    d.vx = (dx * 0.008) / dt * 0.6 + d.vx * 0.4;
+    d.vy = (dy * 0.006) / dt * 0.6 + d.vy * 0.4;
+    if (pointer.moved > 6) hideProbe();
+  });
+  const endPointer = (e) => {
+    if (!pointer.down || e.pointerId !== pointer.id) return;
+    pointer.down = false;
+    el.canvas.classList.remove('grabbing');
+    if (performance.now() - pointer.t > 80) { renderer.drag.vx = renderer.drag.vy = 0; }
+    if (pointer.moved < 6 && e.type === 'pointerup' && (S.mode === 'world' || S.mode === 'duo')) doProbe(e.clientX, e.clientY);
+  };
+  el.canvas.addEventListener('pointerup', endPointer);
+  el.canvas.addEventListener('pointercancel', endPointer);
+  el.canvas.addEventListener('wheel', (e) => {
+    if (!renderer || (S.mode !== 'world' && S.mode !== 'duo')) return;
+    e.preventDefault();
+    renderer.zoom = Math.max(0.6, Math.min(2.4, renderer.zoom * Math.exp(-e.deltaY * 0.0012)));
+    hideProbe();
+  }, { passive: false });
+
+  let probeTimer;
+  function doProbe(x, y) {
+    const k = el.canvas.width / innerWidth;
+    const hit = renderer.pick(x * k, y * k, performance.now() / 1000);
+    if (!hit) { hideProbe(); return; }
+    const info = NV.probe(hit.world, hit.local);
+    el.probe.innerHTML = `<div class="k">${info.icon} ${esc(info.label)}${S.mode === 'duo' ? ' · ' + esc(hit.world.planet) : ''}</div>
+      <div class="n">${esc(info.name)}</div><div class="c">${esc(info.coord)}</div><div class="f">${esc(info.fact)}</div>`;
+    el.marker.style.left = x + 'px'; el.marker.style.top = y + 'px';
+    el.marker.hidden = false; el.probe.hidden = false;
+    const pw = el.probe.offsetWidth, ph = el.probe.offsetHeight;
+    let px = x + 18, py = y - ph / 2;
+    if (px + pw > innerWidth - 12) px = x - pw - 18;
+    py = Math.max(12, Math.min(innerHeight - ph - 12, py));
+    el.probe.style.left = px + 'px'; el.probe.style.top = py + 'px';
+    el.probe.style.animation = 'none'; void el.probe.offsetWidth; el.probe.style.animation = '';
+    clearTimeout(probeTimer);
+    probeTimer = setTimeout(hideProbe, 5000);
+  }
+  function hideProbe() { el.probe.hidden = true; el.marker.hidden = true; }
+
+  function showDragHint() {
+    if (sessionStorage.getItem('nv.hint')) return;
+    sessionStorage.setItem('nv.hint', '1');
+    el.hintDrag.hidden = false;
+    setTimeout(() => { el.hintDrag.hidden = true; }, 6200);
+  }
+
+  /* ───────────── 은하 도감 ───────────── */
+  function loadAtlas() {
+    try { return JSON.parse(localStorage.getItem(ATLAS_KEY)) || []; } catch (e) { return []; }
+  }
+  function saveAtlas(w) {
+    const v = w.visual;
+    const list = loadAtlas().filter((x) => x.key !== w.key);
+    list.unshift({
+      key: w.key, owner: w.owner, planet: w.planet, biome: w.biome.name, rarity: w.rarity.name, top: w.rarity.topPct,
+      c1: NV.toCss(v.type === 2 ? v.emit : v.type === 1 ? v.shallow : v.land),
+      c2: NV.toCss(v.type === 2 ? v.deep : v.deep),
+      glow: NV.toCss(v.atmo), ts: Date.now(),
+    });
+    try { localStorage.setItem(ATLAS_KEY, JSON.stringify(list.slice(0, 60))); } catch (e) { /* 저장 공간 없음: 무시 */ }
+    el.atlasCount.textContent = Math.min(list.length, 60);
+  }
+  function renderAtlas() {
+    const list = loadAtlas();
+    el.atlasList.innerHTML = list.length
+      ? list.map((x) => `<li><button data-owner="${esc(x.owner)}">
+          <span class="dot" style="background:radial-gradient(circle at 34% 32%, ${x.c1}, ${x.c2} 72%);box-shadow:0 0 14px ${x.glow}66, inset -6px -6px 12px rgba(0,0,0,.55)"></span>
+          <span><span class="t">${esc(x.planet)}</span><br><span class="s">${esc(x.owner)} · ${esc(x.biome)} · ${esc(x.rarity)}</span></span>
+        </button></li>`).join('')
+      : '<li class="atlas-empty">아직 발견한 행성이 없어요.<br>이름을 하나 입력해 보세요.</li>';
+  }
+  $('#btn-atlas').addEventListener('click', () => { renderAtlas(); el.atlas.hidden = false; });
+  el.atlasList.addEventListener('click', (e) => {
+    const b = e.target.closest('button[data-owner]');
+    if (!b) return;
+    el.atlas.hidden = true;
+    go(b.dataset.owner);
+  });
+  $('#atlas-clear').addEventListener('click', () => {
+    localStorage.removeItem(ATLAS_KEY);
+    el.atlasCount.textContent = '0';
+    renderAtlas();
+    toast('도감을 비웠어요');
+  });
+
+  /* ───────────── 닫기 · 단축키 ───────────── */
+  function closeOverlays() {
+    el.modalDuo.hidden = true; el.atlas.hidden = true; hideProbe();
+  }
+  document.addEventListener('click', (e) => {
+    const c = e.target.closest('[data-close]');
+    if (c) $('#' + c.dataset.close).hidden = true;
+    if (e.target === el.modalDuo) el.modalDuo.hidden = true;
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') { closeOverlays(); return; }
+    const typing = /INPUT|TEXTAREA/.test(document.activeElement.tagName);
+    if (typing) return;
+    if (e.key === 'm' || e.key === 'M') toggleMusic();
+    if (e.key === '/' && S.mode === 'intro') { e.preventDefault(); el.name.focus(); }
+  });
+  $('#brand').addEventListener('click', (e) => {
+    e.preventDefault();
+    if (location.hash) location.hash = ''; else showIntro();
+  });
+
+  /* ───────────── 시작 ───────────── */
+  el.atlasCount.textContent = loadAtlas().length;
+  resize();
+  route();
+  requestAnimationFrame(frame);
+  if (!location.hash && !coarse) setTimeout(() => el.name.focus(), 300);
+
+  // 디버그/테스트용
+  NV.app = { S, go, renderer, music };
+})();

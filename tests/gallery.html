@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8"><title>NAMEVERSE — 행성 갤러리 (개발용)</title>
+<style>body{margin:0;background:#05050c;color:#ccd;font:13px system-ui}canvas{display:block;width:100vw;height:100vh}
+#labels{position:fixed;inset:0;display:grid;pointer-events:none}#labels div{padding:8px 10px}</style></head>
+<body><canvas id="c"></canvas><div id="labels"></div>
+<script src="../js/seed.js"></script><script src="../js/genesis.js"></script><script src="../js/planet-gl.js"></script>
+<script>
+// 사용법: tests/gallery.html?names=a,b,c&cols=4
+const q = new URLSearchParams(location.search);
+const names = (q.get('names') || '김민준,이서연,박지호,최수아,정우진,윤서준,장지유,서하린,황보라,라면,안별,호랑이').split(',');
+const cols = +(q.get('cols') || 4), rows = Math.ceil(names.length / cols);
+const c = document.getElementById('c');
+c.width = innerWidth; c.height = innerHeight;
+const r = new NV.PlanetRenderer(c);
+const worlds = names.map((n) => NV.genesis(n));
+r.setWorlds(worlds, { instant: true });
+r.layout = (W, H) => worlds.map((_, i) => {
+  const w = Math.floor(W / cols), h = Math.floor(H / rows);
+  const col = i % cols, row = Math.floor(i / cols);
+  return { x: col * w, y: H - (row + 1) * h, w, h, shift: [0, 0], fit: 0.42 };
+});
+const L = document.getElementById('labels');
+L.style.gridTemplateColumns = `repeat(${cols},1fr)`;
+L.innerHTML = worlds.map((w) => `<div><b>${w.owner}</b> · ${w.planet}<br>${w.biome.name} · ${w.rarity.name}</div>`).join('');
+(function loop(t) { r.render(t / 1000); requestAnimationFrame(loop); })(performance.now());
+</script></body></html>
