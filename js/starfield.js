@@ -3,6 +3,9 @@
   'use strict';
   const NV = window.NV;
 
+  // 행성 화면의 별 공간 (행성 반지름 = 1, 카메라는 행성 중심에서 6)
+  const SKY_NEAR = 7, SKY_MIN = 9, SKY_FAR = 70, SKY_SPEED = 1.5;
+
   class Starfield {
     constructor(canvas) {
       this.c = canvas;
@@ -44,65 +47,6 @@
 
     setTint(rgb) { this.tintTarget = rgb.slice(); }
 
-    // 화면(캔버스 픽셀) ↔ 하늘 방향: 행성 셰이더와 같은 식 (uv = (픽셀 - 가운데)/높이 - shift, 방향 = (uv, -focal))
-    _enterSky(view) {
-      const W = this.w, H = this.h, f = view.focal, V = view.V, [sx, sy] = view.shift;
-      const cx = W / 2, cy = H / 2, scale = Math.max(W, H) * 0.5;
-      const toWorld = (x, y) => {
-        const ux = (x - cx) / H - sx, uy = (cy - y) / H - sy, l = Math.hypot(ux, uy, f);
-        const d = [ux / l, uy / l, -f / l];
-        return [V[0] * d[0] + V[3] * d[1] + V[6] * d[2], V[1] * d[0] + V[4] * d[1] + V[7] * d[2], V[2] * d[0] + V[5] * d[1] + V[8] * d[2]];
-      };
-      const sky = [];
-      for (const s of this.stars) {
-        const par = 1 / s.z;
-        const x = cx + (s.x / s.z) * scale * 0.5 - this.mouse.x * 18 * par * this.dpr;
-        const y = cy + (s.y / s.z) * scale * 0.5 - this.mouse.y * 18 * par * this.dpr;
-        if (x < 0 || x > W || y < 0 || y > H) continue;
-        const near = 1 - s.z;
-        sky.push({ d: toWorld(x, y), size: Math.min(3.2 * this.dpr, s.s * (0.5 + near * 1.6) * this.dpr), a: Math.min(1, 0.35 + near * 0.9), col: s.col, tw: s.tw, tws: s.tws });
-      }
-      // 화면 밖의 나머지 하늘도 같은 밀도로 채운다: 무작위 방향 중 화면에 들어오는 비율로 전체 개수를 정한다
-      const randDir = () => {
-        const u = Math.random() * 2 - 1, th = Math.random() * Math.PI * 2, rr = Math.sqrt(1 - u * u);
-        return [rr * Math.cos(th), u, rr * Math.sin(th)];
-      };
-      const visible = (d) => {
-        const vz = V[6] * d[0] + V[7] * d[1] + V[8] * d[2];
-        if (vz >= 0) return false;
-        const px = cx + ((V[0] * d[0] + V[1] * d[1] + V[2] * d[2]) / -vz * f + sx) * H;
-        const py = cy - ((V[3] * d[0] + V[4] * d[1] + V[5] * d[2]) / -vz * f + sy) * H;
-        return px >= 0 && px <= W && py >= 0 && py <= H;
-      };
-      let hit = 0;
-      for (let i = 0; i < 4000; i++) if (visible(randDir())) hit++;
-      const total = Math.min(40000, Math.round(sky.length / Math.max(hit / 4000, 0.004)));
-      for (let i = 0; i < total; i++) {
-        const d = randDir();
-        if (visible(d)) continue; // 이미 지나온 별들이 있는 곳
-        const s = this._star(true), near = 1 - s.z;
-        sky.push({ d, size: Math.min(3.2 * this.dpr, s.s * (0.5 + near * 1.6) * this.dpr), a: Math.min(1, 0.35 + near * 0.9), col: s.col, tw: s.tw, tws: s.tws });
-      }
-      this.sky = sky;
-    }
-
-    _drawSky(dt) {
-      const ctx = this.ctx, W = this.w, H = this.h, view = this.view;
-      const f = view.focal, V = view.V, [sx, sy] = view.shift, cx = W / 2, cy = H / 2;
-      for (const s of this.sky) {
-        s.tw += s.tws * dt;
-        const d = s.d;
-        const vz = V[6] * d[0] + V[7] * d[1] + V[8] * d[2];
-        if (vz >= -1e-3) continue;
-        const x = cx + ((V[0] * d[0] + V[1] * d[1] + V[2] * d[2]) / -vz * f + sx) * H;
-        if (x < -4 || x > W + 4) continue;
-        const y = cy - ((V[3] * d[0] + V[4] * d[1] + V[5] * d[2]) / -vz * f + sy) * H;
-        if (y < -4 || y > H + 4) continue;
-        ctx.fillStyle = `rgba(${s.col},${s.a * (0.75 + 0.25 * Math.sin(s.tw))})`;
-        ctx.fillRect(x - s.size / 2, y - s.size / 2, s.size, s.size);
-      }
-    }
-
     _paintNebula() {
       const nb = this.nebula, W = (nb.width = 480), H = (nb.height = Math.round(480 * this.h / this.w) || 270);
       const g = nb.getContext('2d');
@@ -116,6 +60,82 @@
         grd.addColorStop(1, 'rgba(0,0,0,0)');
         g.fillStyle = grd; g.fillRect(0, 0, W, H);
       });
+    }
+
+    /* 행성에 도착하면 지나온 별들을 행성 주변 공간(월드 좌표)의 점으로 바꾼다.
+     * 행성 셰이더와 같은 카메라(시점 회전 V, 초점거리, 화면 이동)로 투영하므로 시점을 돌리면 함께 돌고,
+     * 거리가 다르니 가까운 별일수록 더 크게 움직인다(시차). 예전처럼 천천히 다가오며 흐른다. */
+    _enterSky(view) {
+      const W = this.w, H = this.h, F = view.focal, V = view.V, [sx, sy] = view.shift, C = view.cam;
+      const cx = W / 2, cy = H / 2, scale = Math.max(W, H) * 0.5;
+      const sky = [];
+      for (const s of this.stars) {
+        const par = 1 / s.z;
+        const x = cx + (s.x / s.z) * scale * 0.5 - this.mouse.x * 18 * par * this.dpr;
+        const y = cy + (s.y / s.z) * scale * 0.5 - this.mouse.y * 18 * par * this.dpr;
+        if (x < 0 || x > W || y < 0 || y > H) continue;
+        // 화면 위치 그대로, 가까웠던 별(작은 z)일수록 카메라 가까이에 둔다
+        const ux = (x - cx) / H - sx, uy = (cy - y) / H - sy, l = Math.hypot(ux, uy, F);
+        const t = SKY_NEAR + s.z * (SKY_FAR - SKY_NEAR);
+        const pv = [ux / l * t, uy / l * t, C - F / l * t];
+        sky.push(this._skyStar(this._toWorld(V, pv), s));
+      }
+      // 화면 밖의 나머지 공간도 같은 밀도로 채운다
+      let hit = 0;
+      const probe = [];
+      for (let i = 0; i < 4000; i++) { const p = this._randPoint(); probe.push(p); if (this._project(p, view)) hit++; }
+      const total = Math.min(40000, Math.round(sky.length / Math.max(hit / 4000, 0.004)));
+      for (let i = 0; i < total; i++) {
+        const p = i < probe.length ? probe[i] : this._randPoint();
+        if (this._project(p, view)) continue; // 지나온 별들이 이미 있는 곳
+        sky.push(this._skyStar(p, this._star(true)));
+      }
+      this.sky = sky;
+    }
+
+    _toWorld(V, p) { return [V[0] * p[0] + V[3] * p[1] + V[6] * p[2], V[1] * p[0] + V[4] * p[1] + V[7] * p[2], V[2] * p[0] + V[5] * p[1] + V[8] * p[2]]; }
+    // 행성 중심에서 SKY_MIN~SKY_FAR 떨어진 곳에: 거리를 고르게 뽑아 가깝고 밝은 별도 충분히 섞이게 한다
+    _randPoint() {
+      const u = Math.random() * 2 - 1, th = Math.random() * Math.PI * 2, rr = Math.sqrt(1 - u * u);
+      const R = SKY_MIN + Math.random() * (SKY_FAR - SKY_MIN);
+      return [rr * Math.cos(th) * R, u * R, rr * Math.sin(th) * R];
+    }
+    _skyStar(p, s) { return { p, s: s.s, col: s.col, tw: s.tw, tws: s.tws }; }
+    // 월드 좌표 → 화면 픽셀 (셰이더와 같은 식). 카메라 뒤나 화면 밖이면 null
+    _project(p, view) {
+      const V = view.V, F = view.focal, [sx, sy] = view.shift, H = this.h;
+      const z = V[6] * p[0] + V[7] * p[1] + V[8] * p[2] - view.cam;
+      if (z > -0.5) return null;
+      const x = this.w / 2 + ((V[0] * p[0] + V[1] * p[1] + V[2] * p[2]) / -z * F + sx) * H;
+      const y = H / 2 - ((V[3] * p[0] + V[4] * p[1] + V[5] * p[2]) / -z * F + sy) * H;
+      if (x < -4 || x > this.w + 4 || y < -4 || y > H + 4) return null;
+      return [x, y, -z];
+    }
+
+    _drawSky(dt) {
+      const ctx = this.ctx, view = this.view, V = view.V;
+      // 카메라가 바라보는 방향(월드)으로 별들이 천천히 다가온다
+      const fw = [-V[6], -V[7], -V[8]], step = SKY_SPEED * dt;
+      for (const s of this.sky) {
+        const p = s.p;
+        p[0] -= fw[0] * step; p[1] -= fw[1] * step; p[2] -= fw[2] * step;
+        s.tw += s.tws * dt;
+        const q = this._project(p, view);
+        if (!q) {
+          // 카메라를 지나쳤거나 너무 가까워진 별은 멀리서 다시 태어난다
+          const d = Math.hypot(p[0], p[1], p[2]);
+          if (d < SKY_MIN * 0.7 || V[6] * p[0] + V[7] * p[1] + V[8] * p[2] - view.cam > -0.5) {
+            const n = this._randPoint(), k = SKY_FAR / Math.hypot(n[0], n[1], n[2]);
+            s.p = [n[0] * k, n[1] * k, n[2] * k];
+          }
+          continue;
+        }
+        const near = Math.max(0, Math.min(1, (SKY_FAR - q[2]) / (SKY_FAR - SKY_NEAR)));
+        const a = Math.min(1, (0.35 + near * 0.9) * (0.75 + 0.25 * Math.sin(s.tw)));
+        const size = Math.min(3.4 * this.dpr, s.s * (0.5 + near * 1.6) * this.dpr);
+        ctx.fillStyle = `rgba(${s.col},${a})`;
+        ctx.fillRect(q[0] - size / 2, q[1] - size / 2, size, size);
+      }
     }
 
     frame(dt, t) {

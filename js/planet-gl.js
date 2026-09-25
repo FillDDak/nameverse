@@ -197,9 +197,14 @@ vec3 shadePlanet(vec3 n, vec3 rd, vec3 p, float px){
         bump = 0.15;
       }
       if(uCity > 0.0){
-        float region = smoothstep(0.05, 0.5, snoise(lp*9.0 + uSeedOff.yzx));
-        float dots = mix(0.18, smoothstep(0.35, 0.8, snoise(lp*140.0 + uSeedOff)), aa(140.0, px));
-        emit += vec3(1.0, 0.74, 0.4)*region*(dots + 0.06)*land*uCity*(1.0 - day)*1.6;
+        // 밤의 도시 불빛: 인구는 해안과 저지대에 몰리고, 멀리서는 은은한 빛, 가까이 보면 점점이 흩어진 불빛
+        float coast = smoothstep(0.08, 0.0, hh - uSea);
+        float lowland = smoothstep(0.66, 0.5, hh);
+        float reg = fbm3(lp*3.5 + uSeedOff.yzx*0.3);
+        float dens = smoothstep(-0.05, 0.4, reg + coast*0.3)*lowland*land;
+        float n1 = snoise(lp*55.0 + uSeedOff), n2 = snoise(lp*170.0 + uSeedOff.zxy);
+        float sp = mix(0.22, smoothstep(0.15, 0.7, n1), aa(55.0, px))*mix(0.3, smoothstep(0.2, 0.85, n2), aa(170.0, px));
+        emit += vec3(1.0, 0.68, 0.34)*dens*(sp*3.2 + 0.04)*uCity*(1.0 - day)*1.5;
       }
     }
     vec3 nl = normalize(lp - bump*(gr.x*t1 + gr.y*t2)*0.11);
@@ -542,11 +547,12 @@ void main(){
     }
 
     // 2D 별밭이 행성과 같은 카메라로 하늘을 그리도록: 시점 회전, 하늘 초점거리, 화면 이동
-    skyView() {
+    skyView(time) {
       if (!this.slots.length) return null;
       const vp = this.layout(this.canvas.width, this.canvas.height, this.slots.length)[0];
       if (!vp || !vp.sky) return null;
-      return { V: M.mul(M.rx(this.cam.pitch), M.ry(this.cam.yaw)), focal: vp.fit * CAM / this.slots[0].world.visual.extent, shift: vp.shift };
+      const st = this._state(this.slots[0], time, vp);
+      return { V: M.mul(M.rx(this.cam.pitch), M.ry(this.cam.yaw)), focal: st.focal, shift: vp.shift, cam: CAM };
     }
 
     // 화면 좌표(캔버스 픽셀, 위쪽 원점) → 행성 표면의 로컬 좌표

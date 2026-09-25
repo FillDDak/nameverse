@@ -89,7 +89,7 @@
   function frame(now) {
     const dt = Math.min(0.1, (now - last) / 1000);
     // 행성 화면에서는 별들을 행성과 같은 카메라로 하늘에 고정해 그린다
-    stars.view = renderer && S.mode === 'world' ? renderer.skyView() : null;
+    stars.view = renderer && S.mode === 'world' ? renderer.skyView(now / 1000) : null;
     stars.frame(Math.min(0.3, (now - last) / 1000), now / 1000);
     last = now;
     if (renderer) {
