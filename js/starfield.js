@@ -4,8 +4,9 @@
   const NV = window.NV;
 
   // 행성 화면의 별 공간 (행성 반지름 = 1, 카메라는 행성 중심에서 6)
-  const SKY_NEAR = 7, SKY_MIN = 9, SKY_FAR = 70;
-  const SKY_SPIN = (Math.PI * 2) / 600; // 별 공간이 행성을 축으로 10분에 한 바퀴
+  // 별은 한 변 2·SKY_BOX인 넓은 공간에 고르게 흩어져 있고, 행성 반경 SKY_MIN 안에는 두지 않는다
+  const SKY_NEAR = 25, SKY_FAR = 170, SKY_MIN = 25, SKY_BOX = 200;
+  const SKY_DRIFT = 0.04; // 화면 왼쪽으로 흐르는 속도 (공간 단위/초): 가까운 별도 초당 1픽셀 안팎
 
   class Starfield {
     constructor(canvas) {
@@ -65,7 +66,8 @@
 
     /* 행성에 도착하면 지나온 별들을 행성 주변 공간(월드 좌표)의 점으로 바꾼다.
      * 행성 셰이더와 같은 카메라(시점 회전 V, 초점거리, 화면 이동)로 투영하므로 시점을 돌리면 함께 돌고,
-     * 별 공간은 행성을 축으로 아주 천천히 돌아서, 가까운 별은 조금 빨리 먼 별은 느리게 옆으로 흘러간다(시차). */
+     * 별들은 카메라 기준 항상 같은 방향(화면 왼쪽)으로 아주 천천히 평행이동한다. 시점을 돌려도 흐르는 방향은 그대로이고,
+     * 먼 별일수록 느리게 움직인다(시차). */
     _enterSky(view) {
       const W = this.w, H = this.h, F = view.focal, V = view.V, [sx, sy] = view.shift, C = view.cam;
       const cx = W / 2, cy = H / 2, scale = Math.max(W, H) * 0.5;
@@ -95,11 +97,12 @@
     }
 
     _toWorld(V, p) { return [V[0] * p[0] + V[3] * p[1] + V[6] * p[2], V[1] * p[0] + V[4] * p[1] + V[7] * p[2], V[2] * p[0] + V[5] * p[1] + V[8] * p[2]]; }
-    // 행성 중심에서 SKY_MIN~SKY_FAR 떨어진 곳에: 거리를 고르게 뽑아 가깝고 밝은 별도 충분히 섞이게 한다
+    // 넓은 상자 공간에 고르게 (행성 가까이는 비운다)
     _randPoint() {
-      const u = Math.random() * 2 - 1, th = Math.random() * Math.PI * 2, rr = Math.sqrt(1 - u * u);
-      const R = SKY_MIN + Math.random() * (SKY_FAR - SKY_MIN);
-      return [rr * Math.cos(th) * R, u * R, rr * Math.sin(th) * R];
+      for (;;) {
+        const p = [(Math.random() * 2 - 1) * SKY_BOX, (Math.random() * 2 - 1) * SKY_BOX, (Math.random() * 2 - 1) * SKY_BOX];
+        if (Math.hypot(p[0], p[1], p[2]) >= SKY_MIN) return p;
+      }
     }
     _skyStar(p, s) { return { p, s: s.s, col: s.col, tw: s.tw, tws: s.tws }; }
     // 월드 좌표 → 화면 픽셀 (셰이더와 같은 식). 카메라 뒤나 화면 밖이면 null
@@ -114,20 +117,23 @@
     }
 
     _drawSky(dt) {
-      const ctx = this.ctx, view = this.view;
-      const c = Math.cos(SKY_SPIN * dt), s = Math.sin(SKY_SPIN * dt);
+      const ctx = this.ctx, view = this.view, V = view.V;
+      // 카메라의 오른쪽 방향(월드 좌표)의 반대로 이동 → 화면에서는 늘 왼쪽으로 흐른다
+      const k = SKY_DRIFT * dt, mx = -V[0] * k, my = -V[1] * k, mz = -V[2] * k, L = SKY_BOX;
+      const wrap = (v) => (v < -L ? v + 2 * L : v >= L ? v - 2 * L : v);
       for (const st of this.sky) {
         const p = st.p;
-        const x = p[0] * c + p[2] * s;
-        p[2] = -p[0] * s + p[2] * c; p[0] = x;
+        p[0] = wrap(p[0] + mx); p[1] = wrap(p[1] + my); p[2] = wrap(p[2] + mz);
         st.tw += st.tws * dt;
         const q = this._project(p, view);
         if (!q) continue;
         const near = Math.max(0, Math.min(1, (SKY_FAR - q[2]) / (SKY_FAR - SKY_NEAR)));
-        const a = Math.min(1, (0.35 + near * 0.9) * (0.75 + 0.25 * Math.sin(st.tw)));
+        // 우주에는 대기가 없어 별이 거의 반짝이지 않는다
+        const a = Math.min(1, (0.35 + near * 0.9) * (0.95 + 0.05 * Math.sin(st.tw)));
         const size = Math.min(3.4 * this.dpr, st.s * (0.5 + near * 1.6) * this.dpr);
         ctx.fillStyle = `rgba(${st.col},${a})`;
-        ctx.fillRect(q[0] - size / 2, q[1] - size / 2, size, size);
+        if (size < 1.8 * this.dpr) ctx.fillRect(q[0] - size / 2, q[1] - size / 2, size, size);
+        else { ctx.beginPath(); ctx.arc(q[0], q[1], size / 2, 0, Math.PI * 2); ctx.fill(); }
       }
     }
 
