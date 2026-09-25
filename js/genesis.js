@@ -123,8 +123,8 @@
       gen(r) {
         const h = r.range(280, 320);
         return {
-          type: 0, deep: hsl(h, 0.6, 0.15), shallow: hsl(h + 18, 0.7, 0.4),
-          land: hsl(r.range(160, 190), 0.5, 0.3), high: hsl(r.range(250, 280), 0.4, 0.42), peak: hsl(r.range(50, 70), 0.7, 0.75),
+          type: 0, deep: hsl(h - 45, 0.5, 0.16), shallow: hsl(h - 60, 0.45, 0.34),
+          land: hsl(r.range(300, 330), 0.35, 0.24), high: hsl(r.range(270, 290), 0.22, 0.36), peak: hsl(r.range(30, 50), 0.2, 0.78),
           sea: r.range(0.45, 0.55), clouds: r.range(0.3, 0.65), ice: r.range(0.82, 0.92),
           city: r.chance(0.5) ? r.range(0.5, 1) : 0, atmo: hsl(h, 0.8, 0.66), atmoStr: r.range(1, 1.35),
           cloudCol: hsl(300, 0.5, 0.9), emit: [0, 0, 0],
@@ -143,8 +143,8 @@
       gen(r) {
         const h = r.range(335, 355);
         return {
-          type: 0, deep: hsl(h, 0.55, 0.25), shallow: hsl(h + 12, 0.7, 0.55),
-          land: hsl(r.range(38, 50), 0.6, 0.5), high: hsl(r.range(20, 30), 0.5, 0.4), peak: hsl(45, 0.3, 0.85),
+          type: 0, deep: hsl(h - 160, 0.45, 0.2), shallow: hsl(h + 10, 0.45, 0.52), // 깊은 곳은 청록, 얕은 산호초는 분홍
+          land: hsl(r.range(58, 78), 0.32, 0.36), high: hsl(r.range(25, 35), 0.3, 0.36), peak: hsl(40, 0.25, 0.82),
           sea: r.range(0.45, 0.55), clouds: r.range(0.3, 0.6), ice: r.range(0.88, 0.96),
           city: r.chance(0.55) ? r.range(0.5, 1) : 0, atmo: hsl(r.range(10, 30), 0.9, 0.66), atmoStr: r.range(1, 1.3),
           cloudCol: hsl(20, 0.6, 0.92), emit: [0, 0, 0],
@@ -457,11 +457,11 @@
     const biome = pickBiome(p, root.fork('biome'));
     const v = biome.gen(rv);
     if (biome.id === 'gas') gasPalette(v, p.eqt, p.method, root.fork('palette'));
-    if (biome.id === 'desert') { v.sea = Math.min(v.sea, 0.12); v.city = 0; v.ice = 1.5; } // 뜨거운 행성: 바다·극관·도시 불빛 없음
+    if (biome.id === 'desert') { v.sea = Math.min(v.sea, 0.12); v.city = 0; v.ice = 1.5; v.clouds = Math.min(v.clouds, 0.08); } // 뜨거운 행성: 바다·극관·도시 불빛 없음
     v.lightCol = starColor(p.teff).map((c) => 0.45 + 0.55 * c);
     v.seedOff = [rv.range(-50, 50), rv.range(-50, 50), rv.range(-50, 50)];
     v.warp = rv.range(0.5, 1.15);
-    v.scale = v.type === 1 ? 1 : rv.range(1.5, 2.5);
+    v.scale = v.type === 1 ? 1 : rv.range(1.5, 2.5) * 0.62; // 작을수록 대륙이 크다
     v.spec = v.spec != null ? v.spec : 0;
     v.bands = v.bands || 0; v.turb = v.turb || 0; v.stormSize = v.stormSize || 0;
     const sy = rv.range(-0.55, 0.55), sa = rv.range(0, Math.PI * 2), sc = Math.sqrt(1 - sy * sy);

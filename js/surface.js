@@ -2,38 +2,59 @@
 (function () {
   'use strict';
   const NV = window.NV;
-  const fract = (x) => x - Math.floor(x);
-
-  function hash(x, y, z) {
-    x = fract(x * 0.3183099 + 0.1) * 17; y = fract(y * 0.3183099 + 0.1) * 17; z = fract(z * 0.3183099 + 0.1) * 17;
-    return fract(x * y * z * (x + y + z));
+  /* 3D simplex noise — 셰이더(planet-gl.js)의 snoise와 같은 계산 */
+  const floor = Math.floor;
+  const mod289 = (x) => x - floor((x + 0.5) / 289) * 289;
+  const permute = (x) => mod289((x * 34 + 10) * x);
+  const step = (e, x) => (x < e ? 0 : 1);
+  function snoise(vx, vy, vz) {
+    const C1 = 1 / 6, C2 = 1 / 3;
+    const s = (vx + vy + vz) * C2;
+    let ix = floor(vx + s), iy = floor(vy + s), iz = floor(vz + s);
+    const t = (ix + iy + iz) * C1;
+    const x0 = vx - ix + t, y0 = vy - iy + t, z0 = vz - iz + t;
+    const gx = step(y0, x0), gy = step(z0, y0), gz = step(x0, z0);
+    const lx = 1 - gx, ly = 1 - gy, lz = 1 - gz;
+    const i1 = [Math.min(gx, lz), Math.min(gy, lx), Math.min(gz, ly)];
+    const i2 = [Math.max(gx, lz), Math.max(gy, lx), Math.max(gz, ly)];
+    const X = [x0, x0 - i1[0] + C1, x0 - i2[0] + C2, x0 - 0.5];
+    const Y = [y0, y0 - i1[1] + C1, y0 - i2[1] + C2, y0 - 0.5];
+    const Z = [z0, z0 - i1[2] + C1, z0 - i2[2] + C2, z0 - 0.5];
+    ix = mod289(ix); iy = mod289(iy); iz = mod289(iz);
+    const oz = [0, i1[2], i2[2], 1], oy = [0, i1[1], i2[1], 1], ox = [0, i1[0], i2[0], 1];
+    let sum = 0;
+    for (let k = 0; k < 4; k++) {
+      const p = permute(permute(permute(iz + oz[k]) + iy + oy[k]) + ix + ox[k]);
+      const j = p - 49 * floor((p + 0.5) / 49);
+      const xi = floor((j + 0.5) / 7), yi = j - 7 * xi;
+      const gxk = xi * (2 / 7) + (0.5 / 7 - 1), gyk = yi * (2 / 7) + (0.5 / 7 - 1);
+      const h = 1 - Math.abs(gxk) - Math.abs(gyk);
+      const sh = h <= 0 ? -1 : 0;
+      const ax = gxk + (floor(gxk) * 2 + 1) * sh, ay = gyk + (floor(gyk) * 2 + 1) * sh;
+      const nrm = 1.79284291400159 - 0.85373472095314 * (ax * ax + ay * ay + h * h);
+      const m = Math.max(0.5 - (X[k] * X[k] + Y[k] * Y[k] + Z[k] * Z[k]), 0);
+      sum += m * m * m * m * nrm * (ax * X[k] + ay * Y[k] + h * Z[k]);
+    }
+    return 105 * sum;
   }
-  function noise(x, y, z) {
-    const ix = Math.floor(x), iy = Math.floor(y), iz = Math.floor(z);
-    let fx = x - ix, fy = y - iy, fz = z - iz;
-    fx = fx * fx * (3 - 2 * fx); fy = fy * fy * (3 - 2 * fy); fz = fz * fz * (3 - 2 * fz);
-    const L = (a, b, t) => a + (b - a) * t;
-    return L(
-      L(L(hash(ix, iy, iz), hash(ix + 1, iy, iz), fx), L(hash(ix, iy + 1, iz), hash(ix + 1, iy + 1, iz), fx), fy),
-      L(L(hash(ix, iy, iz + 1), hash(ix + 1, iy, iz + 1), fx), L(hash(ix, iy + 1, iz + 1), hash(ix + 1, iy + 1, iz + 1), fx), fy),
-      fz);
-  }
-  function fbm(x, y, z) {
+  // M3 회전 후 2.03배 (셰이더의 M3*p*2.03)
+  const rot = (p) => [(-0.8 * p[1] - 0.6 * p[2]) * 2.03, (0.8 * p[0] + 0.36 * p[1] - 0.48 * p[2]) * 2.03, (0.6 * p[0] - 0.48 * p[1] + 0.64 * p[2]) * 2.03];
+  function fbmN(p, oct) {
     let a = 0.5, s = 0;
-    for (let i = 0; i < 6; i++) { s += a * noise(x, y, z); x = x * 2.02 + 1.7; y = y * 2.02 + 9.2; z = z * 2.02 + 3.1; a *= 0.5; }
+    for (let i = 0; i < oct; i++) { s += a * snoise(p[0], p[1], p[2]); p = rot(p); a *= 0.5; }
     return s;
   }
-  function fbm3(x, y, z) {
-    let a = 0.5, s = 0;
-    for (let i = 0; i < 3; i++) { s += a * noise(x, y, z); x = x * 2.03 + 4.1; y = y * 2.03 + 2.3; z = z * 2.03 + 7.7; a *= 0.5; }
-    return s / 0.875;
-  }
+  const HK = 0.53;
+  const add = (p, k) => [p[0] + k, p[1] + k, p[2] + k];
   function height(v, lp) {
     const q = [lp[0] * v.scale + v.seedOff[0], lp[1] * v.scale + v.seedOff[1], lp[2] * v.scale + v.seedOff[2]];
-    const w0 = fbm3(q[0], q[1], q[2]) - 0.5;
-    const w1 = fbm3(q[0] + 5.2, q[1] + 5.2, q[2] + 5.2) - 0.5;
-    const w2 = fbm3(q[0] + 9.1, q[1] + 9.1, q[2] + 9.1) - 0.5;
-    return fbm(q[0] + v.warp * w0, q[1] + v.warp * w1, q[2] + v.warp * w2);
+    const w = [fbmN(q, 3), fbmN(add(q, 5.2), 3), fbmN(add(q, 9.1), 3)];
+    const qw = [q[0] + v.warp * 0.5 * w[0], q[1] + v.warp * 0.5 * w[1], q[2] + v.warp * 0.5 * w[2]];
+    let h = 0.5 + HK * fbmN(qw, 6);
+    const r = 1 - Math.abs(snoise(qw[0] * 2.3 + 11, qw[1] * 2.3 + 11, qw[2] * 2.3 + 11));
+    const t = Math.min(1, Math.max(0, (h - v.sea) / 0.15));
+    h += 0.07 * r * r * t * t * (3 - 2 * t);
+    return h;
   }
 
   function classify(world, lp) {
@@ -48,9 +69,8 @@
     const lat = Math.abs(lp[1]) + (hh - 0.5) * 0.35;
     if (lat > v.ice + 0.02) return 'ice';
     if (hh < v.sea) return (v.sea - hh) / v.sea > 0.12 ? 'deep' : 'coast';
-    const e = (hh - v.sea) / (1 - v.sea);
     if (v.type === 3) return 'ice';
-    return e > 0.3 ? 'peak' : e > 0.12 ? 'high' : 'land';
+    return hh > 0.72 ? 'peak' : hh > 0.6 ? 'high' : 'land';
   }
 
   const PREFIX = ['속삭이는', '잠든', '노래하는', '유리', '은빛', '검은', '달빛', '천 개의', '무너진', '떠다니는', '거꾸로 흐르는', '잊혀진', '푸른 불꽃의', '끝없는', '작은', '두 번째', '별이 떨어진', '웃는', '안개 낀', '황금'];
@@ -84,5 +104,5 @@
   }
 
   NV.probe = probe;
-  NV._noise = { hash, noise, fbm, fbm3, height };
+  NV._noise = { snoise, fbmN, height };
 })();
