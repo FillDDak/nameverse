@@ -4,13 +4,23 @@
   const NV = window.NV;
 
   // 행성 화면의 별 공간 (행성 반지름 = 1, 카메라는 행성 중심에서 6)
-  // 별은 행성에서 SKY_NEAR~SKY_FAR 사이에, 거리를 3배씩 늘린 구간마다 같은 개수로(로그 균등) 흩어져 있다.
+  // 별의 거리 분포 (행성 중심 기준):
+  //  · SKY_NEAR~SKY_CORE: 밀도가 일정 → 카메라가 최대로 물러나도(별 공간에서 약 660) 행성 주위에 별이 뭉쳐 보이지 않는다
+  //  · SKY_CORE~SKY_FAR: 거리를 3배씩 늘린 구간마다 같은 개수(로그 균등) → 아주 먼 곳까지 고르게 이어진다
   // 가장 먼 별은 시차가 거의 없어 셰이더가 그리는 무한히 먼 배경 별·은하수와 이어진다
-  // 가까운 별은 적게, 먼 별은 많게: 먼 거리일수록 부피가 커서 자연히 먼 별이 대부분이 된다
-  const SKY_NEAR = 40, SKY_FAR = 40000;
-  const SKY_LOG = Math.log(SKY_FAR / SKY_NEAR);
-  // 가까울수록 1, 가장 멀면 0 (거리의 로그 기준)
-  const nearness = (d) => Math.max(0, Math.min(1, 1 - Math.log(Math.max(d, SKY_NEAR) / SKY_NEAR) / SKY_LOG));
+  const SKY_NEAR = 40, SKY_CORE = 800, SKY_FAR = 40000;
+  const CORE_W = (SKY_CORE ** 3 - SKY_NEAR ** 3) / (3 * SKY_CORE ** 3); // 두 구역의 밀도가 경계에서 이어지도록 한 상대 개수
+  const TAIL_W = Math.log(SKY_FAR / SKY_CORE);
+  const P_CORE = CORE_W / (CORE_W + TAIL_W);
+  // 거리 d까지의 누적 비율과 그 역함수
+  const cdf = (d) => d <= SKY_NEAR ? 0
+    : d <= SKY_CORE ? P_CORE * (d ** 3 - SKY_NEAR ** 3) / (SKY_CORE ** 3 - SKY_NEAR ** 3)
+      : Math.min(1, P_CORE + (1 - P_CORE) * Math.log(d / SKY_CORE) / TAIL_W);
+  const invCdf = (u) => u <= P_CORE
+    ? Math.cbrt(SKY_NEAR ** 3 + (u / P_CORE) * (SKY_CORE ** 3 - SKY_NEAR ** 3))
+    : SKY_CORE * Math.exp(((u - P_CORE) / (1 - P_CORE)) * TAIL_W);
+  // 가까울수록 1, 가장 멀면 0: 날아오던 별의 밝기 분포(1 - z)와 그대로 이어진다
+  const nearness = (d) => 1 - cdf(d);
   const SKY_DRIFT = 0.05; // 화면 왼쪽으로 흐르는 속도 (공간 단위/초): 가장 가까운 별도 초당 1픽셀 안팎
 
   class Starfield {
@@ -84,7 +94,7 @@
         if (x < 0 || x > W || y < 0 || y > H) continue;
         // 화면 위치 그대로, 가까웠던 별(작은 z)일수록 카메라 가까이에 둔다
         const ux = (x - cx) / H - sx, uy = (cy - y) / H - sy, l = Math.hypot(ux, uy, F);
-        const t = SKY_NEAR * Math.exp(s.z * SKY_LOG); // 날아올 때 가까웠던 별(작은 z)은 가까이, 멀던 별은 아주 멀리
+        const t = invCdf(s.z); // 날아올 때 가까웠던 별(작은 z)은 가까이, 멀던 별은 아주 멀리
         const pv = [ux / l * t, uy / l * t, C - F / l * t];
         sky.push(this._skyStar(this._toWorld(V, pv), s));
       }
@@ -102,10 +112,10 @@
     }
 
     _toWorld(V, p) { return [V[0] * p[0] + V[3] * p[1] + V[6] * p[2], V[1] * p[0] + V[4] * p[1] + V[7] * p[2], V[2] * p[0] + V[5] * p[1] + V[8] * p[2]]; }
-    // 방향은 고르게, 거리는 구간(3배씩)마다 같은 개수가 되도록
+    // 방향은 고르게, 거리는 위의 분포대로
     _randPoint() {
       const u = Math.random() * 2 - 1, th = Math.random() * Math.PI * 2, rr = Math.sqrt(1 - u * u);
-      const R = SKY_NEAR * Math.exp(Math.random() * SKY_LOG);
+      const R = invCdf(Math.random());
       return [rr * Math.cos(th) * R, u * R, rr * Math.sin(th) * R];
     }
     _skyStar(p, s) { return { p, s: s.s, col: s.col, tw: s.tw, tws: s.tws }; }

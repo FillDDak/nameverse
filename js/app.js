@@ -536,6 +536,8 @@
   }
 
   /* ───────────── 조작: 드래그 = 행성 회전 · 오른쪽 드래그/두 손가락 = 시점 이동 · 핀치/휠 = 확대 ───────────── */
+  // 확대 한계: 카메라와 행성 중심 거리 = 6 / zoom → 가장 가까이 2.5, 가장 멀리 100 (행성 반지름 = 1)
+  const ZOOM_MIN = 0.06, ZOOM_MAX = 2.4;
   const pointers = new Map();   // pointerId → {x, y}
   const pointer = { down: false, mode: 'spin', x: 0, y: 0, moved: 0, t: 0, dist: 0 };
   const viewing = () => S.mode === 'world' || S.mode === 'duo';
@@ -587,7 +589,7 @@
       c.vpitch = (dy * 0.005) / dt * 0.6 + c.vpitch * 0.4;
       if (pointers.size >= 2) {
         const dist = spread();
-        if (pointer.dist > 0 && dist > 0) renderer.zoom = Math.max(0.6, Math.min(2.4, renderer.zoom * dist / pointer.dist));
+        if (pointer.dist > 0 && dist > 0) renderer.zoom = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, renderer.zoom * dist / pointer.dist));
         pointer.dist = dist;
       }
     } else {
@@ -616,7 +618,7 @@
   el.canvas.addEventListener('wheel', (e) => {
     if (!renderer || !viewing()) return;
     e.preventDefault();
-    renderer.zoom = Math.max(0.6, Math.min(2.4, renderer.zoom * Math.exp(-e.deltaY * 0.0012)));
+    renderer.zoom = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, renderer.zoom * Math.exp(-e.deltaY * 0.0012)));
     hideProbe();
   }, { passive: false });
   // 더블클릭(더블탭): 처음 시점으로
