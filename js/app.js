@@ -120,12 +120,20 @@
         const k = x * x * (3 - 2 * x);
         if (k > 0) {
           c.yaw += AUTO_YAW * S.autoDir * k * dt;
-          const target = Math.max(-PITCH_BAND, Math.min(PITCH_BAND, c.pitch));
-          c.pitch += (target - c.pitch) * (1 - Math.exp(-dt * 0.3 * k));
+          // 높이가 범위를 벗어났으면 PITCH_TIME초에 걸쳐 돌아온다: 처음과 끝만 부드럽게 가감속하고 중간은 일정한 속도
+          if (!S.pitchRet && Math.abs(c.pitch) > PITCH_BAND + 1e-3) {
+            S.pitchRet = { from: c.pitch, to: Math.sign(c.pitch) * PITCH_BAND, t0: now };
+          }
+          const R = S.pitchRet;
+          if (R) {
+            const u = (now - R.t0) / 1000 / PITCH_TIME;
+            c.pitch = R.from + (R.to - R.from) * pitchEase(u);
+            if (u >= 1) S.pitchRet = null;
+          }
           // 거의 다 빨라졌으면 앞으로의 시점을 예측할 수 있다: 혜성이 이 회전을 따라 화면에 들어오게 한다
-          if (k > 0.75) auto = { spin: AUTO_YAW * S.autoDir, pitch: target };
-        }
-      }
+          if (k > 0.75) auto = { spin: AUTO_YAW * S.autoDir, pitch: R ? R.to : c.pitch };
+        } else S.pitchRet = null;
+      } else S.pitchRet = null; // 사용자가 조작하면 돌아오던 것을 멈춘다
       stars.auto = auto;
       renderer.pulse = music.getLevel();
       renderer.comet = stars.cometU;
@@ -606,8 +614,18 @@
   // 확대 한계: 카메라와 행성 중심 거리 = 6 / zoom → 가장 가까이 2.5, 가장 멀리 100 (행성 반지름 = 1)
   const ZOOM_MIN = 0.06, ZOOM_MAX = 2.4;
   // 자동 회전: 마지막 조작 AUTO_DELAY초 뒤부터 AUTO_RAMP초에 걸쳐 AUTO_YAW(rad/s, 약 2.6분에 한 바퀴)까지 빨라진다.
-  // 시점 높이는 ±PITCH_BAND(약 16°) 안으로 돌아온다
-  const AUTO_DELAY = 5, AUTO_RAMP = 4, AUTO_YAW = 0.04, PITCH_BAND = 0.28;
+  // 시점 높이는 ±PITCH_BAND(약 16°) 안으로 PITCH_TIME초에 걸쳐 돌아온다
+  const AUTO_DELAY = 5, AUTO_RAMP = 4, AUTO_YAW = 0.04, PITCH_BAND = 0.28, PITCH_TIME = 6;
+  // 0→1 이동 곡선: 앞뒤 EDGE 구간에서만 속도가 사인 곡선으로 0↔최대로 바뀌고, 가운데는 일정한 속도
+  const EDGE = 0.25, AREA = 1 - EDGE;
+  const rampPos = (u) => u / 2 - (EDGE / (2 * Math.PI)) * Math.sin(Math.PI * u / EDGE);
+  const pitchEase = (u) => {
+    if (u <= 0) return 0;
+    if (u >= 1) return 1;
+    if (u < EDGE) return rampPos(u) / AREA;
+    if (u > 1 - EDGE) return 1 - rampPos(1 - u) / AREA;
+    return (EDGE / 2 + (u - EDGE)) / AREA;
+  };
   S.idleAt = performance.now(); S.autoDir = 1; // +1: 별이 흐르는 방향(화면 왼쪽)과 같은 쪽으로 돈다
   const poke = () => { S.idleAt = performance.now(); };
   const pointers = new Map();   // pointerId → {x, y}
