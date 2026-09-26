@@ -345,7 +345,7 @@ void main(){
       }
     }
   }
-  // 모항성과 하늘은 무한히 멀다: 행성을 확대(uFocal)해도 크기가 변하지 않도록 따로 정한 초점거리로 본다
+  // 모항성과 하늘은 행성과 같은 확대 배율의 초점거리로 본다 (도착 연출의 크기 변화만 제외)
   vec3 rdS = normalize(vec3(uv, -uSkyFocal));
   float apS = 1.0/(uRes.y*uSkyFocal);
   vec3 tint = clamp((uLightCol - 0.45)/0.55, 0.0, 1.0); // 별 본래 색 (uLightCol은 흰색 쪽에 섞은 조명용 값)
@@ -495,7 +495,9 @@ void main(){
         const a = m.phase + time * m.speed;
         return M.vec(M.mul(V, M.mul(M.rx(pitch), M.rz(m.incl))), [Math.cos(a) * m.dist, 0, Math.sin(a) * m.dist]).concat(m.r);
       });
-      return { R, RC, focal, alpha: Math.min(1, Math.max(0, (time - slot.fadeAt) / 0.6)), ringN: M.vec(tiltM, [0, 1, 0]), moons, light: M.vec(V, LIGHT), V, skyFocal: vp.fit * CAM / v.extent };
+      return { R, RC, focal, alpha: Math.min(1, Math.max(0, (time - slot.fadeAt) / 0.6)), ringN: M.vec(tiltM, [0, 1, 0]), moons, light: M.vec(V, LIGHT), V,
+        // 하늘(별·은하수·모항성)은 확대/축소만 따라간다(망원 렌즈처럼 모두 같은 배율). 도착할 때 행성이 커지는 연출은 따라가지 않는다
+        skyFocal: (vp.fit * CAM / v.extent) * this.zoom };
     }
 
     render(time) {
@@ -552,7 +554,7 @@ void main(){
       const vp = this.layout(this.canvas.width, this.canvas.height, this.slots.length)[0];
       if (!vp || !vp.sky) return null;
       const st = this._state(this.slots[0], time, vp);
-      return { V: M.mul(M.rx(this.cam.pitch), M.ry(this.cam.yaw)), focal: st.focal, shift: vp.shift, cam: CAM };
+      return { V: st.V, focal: st.skyFocal, shift: vp.shift, cam: CAM };
     }
 
     // 화면 좌표(캔버스 픽셀, 위쪽 원점) → 행성 표면의 로컬 좌표
