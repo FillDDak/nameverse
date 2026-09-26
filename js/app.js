@@ -112,6 +112,7 @@
         d.y = Math.max(-1.1, Math.min(1.1, d.y));
       }
       renderer.pulse = music.getLevel();
+      renderer.comet = stars.cometU;
       renderer.render(now / 1000);
       // 프레임이 느리면 해상도를 낮추고, 여유가 있으면 다시 높인다
       perf.acc += dt; perf.n++; perf.cool -= dt;

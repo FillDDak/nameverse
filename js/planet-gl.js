@@ -20,6 +20,7 @@ uniform float uBands, uTurb, uStormSize; uniform vec3 uStorm;
 uniform float uRing, uRingSeed; uniform vec3 uRingN; uniform vec2 uRingR; uniform vec3 uRingCol;
 uniform vec4 uMoon0, uMoon1, uMoon2; uniform vec3 uMoonCol0, uMoonCol1, uMoonCol2;
 uniform float uStarR, uSkyFocal, uSky; uniform mat3 uView;
+uniform vec4 uCmH, uCmI, uCmD; uniform vec3 uCmCol; // 혜성: 머리(xy, 크기, 밝기), 이온 꼬리 끝(xy, 범위, 씨앗), 먼지 꼬리 베지어(조절점, 끝)
 uniform vec4 uMetA0, uMetB0, uMetA1, uMetB1; // 유성: A.xyz 시작, A.w 머리 위치(0~1), B.xyz 끝, B.w 밝기
 
 // 3D simplex noise (Ashima Arts / Ian McEwan, MIT) — 좌표가 커져도 격자 무늬나 정밀도 깨짐이 없다
@@ -306,6 +307,53 @@ vec3 skyColor(vec3 d, float ap){
   return starLayer(d, 120.0, ap, 0.09, 0.5) + starLayer(d, 240.0, ap, 0.07 + band*0.2, 0.3) + starLayer(d, 330.0, ap, band*0.35, 0.25) + mw;
 }
 
+// 혜성 (하늘 uv 공간). 모항성 반대쪽으로 곧게 뻗는 푸른 이온 꼬리 가닥들과, 궤도 뒤로 휘며 넓게 퍼지는 먼지 꼬리
+float hash1(float n){ return fract(sin(n)*43758.5453); }
+vec3 comet(vec2 uv, float ap){
+  vec2 h = uCmH.xy, d0 = uv - h;
+  if(uCmH.w <= 0.0 || dot(d0, d0) > uCmI.z*uCmI.z) return vec3(0.0);
+  float r = max(uCmH.z, ap*0.8), sd = uCmI.w;
+  vec3 c = vec3(0.0);
+  // 이온 꼬리: 항성풍에 흔들리는 가는 가닥 여러 개. 물결과 밝은 매듭이 천천히 바깥으로 흘러간다
+  vec2 ax = uCmI.xy - h; float L = max(length(ax), 1e-5);
+  vec2 dir = ax/L, nr = vec2(-dir.y, dir.x);
+  float u = dot(d0, dir)/L, v = dot(d0, nr);
+  if(u > 0.0 && u < 1.0){
+    float fade = pow(1.0 - u, 1.3)*smoothstep(0.0, 0.05, u);
+    float ion = 0.0;
+    for(int k = 0; k < 5; k++){
+      float fk = float(k), hk = hash1(sd*1.7 + fk*13.1);
+      float spread = k == 0 ? 0.0 : (hk - 0.5)*0.16;
+      float wave = sin(u*(3.0 + 3.0*hk)*6.2832 - uTime*(0.35 + 0.25*hk) + hk*30.0)*(0.008 + 0.012*hk)*u;
+      float off = (spread*u + wave)*L;
+      float w = r*(0.3 + u*1.6) + ap*0.7;
+      float knot = 0.55 + 0.45*sin(u*(7.0 + 5.0*hk) - uTime*(0.6 + 0.4*hk) + fk*2.1);
+      float x = (v - off)/w;
+      ion += exp(-x*x)*(k == 0 ? 1.0 : 0.3 + 0.45*hk)*knot*(ap*0.7/w + 0.3);
+    }
+    float gw = r*(1.0 + u*7.0) + ap;
+    c += vec3(0.32, 0.58, 1.0)*(ion*0.9 + exp(-v*v/(gw*gw))*0.12)*fade;
+  }
+  // 먼지 꼬리: 2차 베지어 중심선을 따라 넓어지는 부채꼴. 휘어진 바깥쪽이 또렷하고, 안쪽은 흐리게 번진다. 옅은 줄무늬
+  vec2 C = uCmD.xy, E = uCmD.zw, ch = E - h;
+  float Ld = max(length(ch), 1e-5);
+  float t0 = dot(d0, ch)/(Ld*Ld), t = clamp(t0, 0.0, 1.0);
+  vec2 B = mix(mix(h, C, t), mix(C, E, t), t);
+  vec2 Bt = (1.0 - t)*(C - h) + t*(E - C);
+  vec2 bn = normalize(vec2(-Bt.y, Bt.x) + 1e-6);
+  float side = dot(uv - B, bn)*sign(dot(C - 0.5*(h + E), bn) + 1e-6); // 양수: 이온 꼬리 쪽(덜 휜 가장자리)
+  float w = r*(1.0 + t*15.0) + ap;
+  float prof = side > 0.0 ? exp(-pow(side/(w*0.4), 2.0)) : exp(-pow(side/(w*1.3), 2.0));
+  float stri = 0.8 + 0.2*sin(side/w*5.0 - t*4.0 + sd);
+  float fadeD = pow(1.0 - t, 1.6)*smoothstep(0.0, 0.03, t0)*smoothstep(1.0, 0.9, t0);
+  c += uCmCol*prof*stri*fadeD*0.9*min(1.0, 3.0*r/w + 0.25);
+  // 코마(모항성 쪽으로 부푼 초록빛 기체)와 핵
+  float dc = length(uv - (h - dir*r*0.9)), dn = length(d0);
+  c += vec3(0.5, 1.0, 0.68)*(exp(-pow(dc/(r*2.4), 2.0))*0.7 + exp(-pow(dn/(r*7.0), 2.0))*0.14);
+  c += exp(-pow(dn/max(r*0.45, ap*0.9), 2.0))*1.4;
+  return (1.0 - exp(-c))*uCmH.w;
+}
+
 void main(){
   vec2 uv = (gl_FragCoord.xy - uOffset - 0.5*uRes)/uRes.y - uShift;
   vec3 ro = vec3(0.0, 0.0, uCamDist);
@@ -379,7 +427,7 @@ void main(){
   col += coreC*(1.0 - alpha);
   alpha += coreA*(1.0 - alpha);
   if(uSky > 0.5 && alpha < 0.999){
-    vec3 sky = skyColor(uView*rdS, apS);
+    vec3 sky = skyColor(uView*rdS, apS) + comet(uv, apS);
     col += sky*(1.0 - alpha);
     alpha += min(1.0, max(sky.r, max(sky.g, sky.b)))*(1.0 - alpha);
   }
@@ -435,6 +483,10 @@ void main(){
   // 확대/축소는 카메라가 실제로 다가가고 물러나는 것(달리 줌). 별 공간에서는 그 이동을 STAR_DOLLY배로 키워
   // 가까운 별은 크게, 먼 별은 조금, 은하수와 모항성(무한히 멂)은 전혀 움직이지 않는 연속된 깊이감을 만든다
   const STAR_DOLLY = 7;
+  // 단, 물러날 때는 별 공간의 카메라가 가장 가까운 별들(행성에서 40 이상) 안쪽에 머물도록 점점 덜 물러난다.
+  // 별들은 행성을 중심으로 흩어져 있어서, 그 바깥까지 나가면 별 무리를 밖에서 보게 되어 행성 주변에 몰려 보인다
+  const STAR_OUT = 26;
+  const starMove = (d) => (d > 0 ? STAR_OUT * (1 - Math.exp(-d / STAR_OUT)) : d);
   const BASE_PITCH = 0.3;
 
   /* ───────────── 렌더러 ───────────── */
@@ -451,6 +503,7 @@ void main(){
       this.pulse = 0;
       this.cam = { yaw: 0, pitch: 0, vyaw: 0, vpitch: 0 }; // 행성 주위를 도는 시점
       this.meteors = []; this.metNext = 0;
+      this.comet = null; // 별밭(Starfield)이 계산한 혜성의 화면 좌표
       this.layout = () => [{ x: 0, y: 0, w: canvas.width, h: canvas.height, shift: [0, 0], fit: 0.4 }];
       this._build();
     }
@@ -597,6 +650,9 @@ void main(){
         f4('uMoon' + i, m || [0, 0, 0, 0]);
         f3('uMoonCol' + i, m ? v.moons[i].color : [0, 0, 0]);
       }
+      const cm = meteors && this.comet;
+      f4('uCmH', cm ? cm.H : [0, 0, 0, 0]);
+      if (cm) { f4('uCmI', cm.I); f4('uCmD', cm.D); f3('uCmCol', cm.col); }
       for (let i = 0; i < 2; i++) {
         const m = meteors && this.meteors[i];
         if (!m) { f4('uMetA' + i, [0, 0, 1, 0]); f4('uMetB' + i, [0, 0, 1, 0]); continue; }
@@ -616,7 +672,7 @@ void main(){
       if (!vp || !vp.sky) return null;
       const st = this._state(this.slots[0], time, vp);
       const v = this.slots[0].world.visual;
-      return { V: st.V, focal: st.skyFocal, shift: vp.shift, cam: CAM + (st.camDist - CAM) * STAR_DOLLY, lightCol: v.lightCol || [1, 0.96, 0.9] };
+      return { V: st.V, focal: st.skyFocal, shift: vp.shift, cam: CAM + starMove((st.camDist - CAM) * STAR_DOLLY), lightCol: v.lightCol || [1, 0.96, 0.9] };
     }
 
     // 화면 좌표(캔버스 픽셀, 위쪽 원점) → 행성 표면의 로컬 좌표
