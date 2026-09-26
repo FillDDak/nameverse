@@ -4,22 +4,17 @@
   const NV = window.NV;
 
   // 행성 화면의 별 공간 (행성 반지름 = 1, 카메라는 행성 중심에서 6)
-  // 별의 거리 분포 (행성 중심 기준):
-  //  · SKY_NEAR~SKY_CORE: 밀도가 일정 → 카메라가 최대로 물러나도(별 공간에서 약 660) 행성 주위에 별이 뭉쳐 보이지 않는다
-  //  · SKY_CORE~SKY_FAR: 거리를 3배씩 늘린 구간마다 같은 개수(로그 균등) → 아주 먼 곳까지 고르게 이어진다
-  // 가장 먼 별은 시차가 거의 없어 셰이더가 그리는 무한히 먼 배경 별·은하수와 이어진다
-  const SKY_NEAR = 40, SKY_CORE = 800, SKY_FAR = 40000;
-  const CORE_W = (SKY_CORE ** 3 - SKY_NEAR ** 3) / (3 * SKY_CORE ** 3); // 두 구역의 밀도가 경계에서 이어지도록 한 상대 개수
-  const TAIL_W = Math.log(SKY_FAR / SKY_CORE);
-  const P_CORE = CORE_W / (CORE_W + TAIL_W);
+  // 별의 거리 분포 (행성 중심 기준): 거리를 3배씩 늘린 구간마다 개수가 SKY_GROW배씩 늘어난다.
+  // 가까운 구간(40~120)은 드물고, 멀어질수록 점점 많아져 가장 먼 곳은 셰이더가 그리는 무한히 먼 배경 별·은하수와 이어진다
+  const SKY_NEAR = 40, SKY_FAR = 40 * 3 ** 7, SKY_GROW = 1.6; // 3배 구간 7개: 40~120, 120~360, … ~87,480
+  const BANDS = Math.log(SKY_FAR / SKY_NEAR) / Math.log(3); // 구간 수 (7)
+  const GROW_TOTAL = Math.pow(SKY_GROW, BANDS) - 1;
   // 거리 d까지의 누적 비율과 그 역함수
-  const cdf = (d) => d <= SKY_NEAR ? 0
-    : d <= SKY_CORE ? P_CORE * (d ** 3 - SKY_NEAR ** 3) / (SKY_CORE ** 3 - SKY_NEAR ** 3)
-      : Math.min(1, P_CORE + (1 - P_CORE) * Math.log(d / SKY_CORE) / TAIL_W);
-  const invCdf = (u) => u <= P_CORE
-    ? Math.cbrt(SKY_NEAR ** 3 + (u / P_CORE) * (SKY_CORE ** 3 - SKY_NEAR ** 3))
-    : SKY_CORE * Math.exp(((u - P_CORE) / (1 - P_CORE)) * TAIL_W);
-  // 가까울수록 1, 가장 멀면 0: 날아오던 별의 밝기 분포(1 - z)와 그대로 이어진다
+  const cdf = (d) => {
+    const x = Math.log(Math.max(d, SKY_NEAR) / SKY_NEAR) / Math.log(3);
+    return Math.min(1, (Math.pow(SKY_GROW, x) - 1) / GROW_TOTAL);
+  };
+  const invCdf = (u) => SKY_NEAR * Math.pow(3, Math.log(1 + u * GROW_TOTAL) / Math.log(SKY_GROW));
   const nearness = (d) => 1 - cdf(d);
   const SKY_DRIFT = 0.05; // 화면 왼쪽으로 흐르는 속도 (공간 단위/초): 가장 가까운 별도 초당 1픽셀 안팎
 
