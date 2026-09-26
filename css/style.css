@@ -105,7 +105,8 @@ button { cursor: pointer; }
   font: inherit; font-size: 14px; color: #fff; color-scheme: dark; min-height: 30px;
 }
 .bday.shake { animation: shake 0.45s var(--ease); }
-.bday-note { font-size: 12px; color: rgba(255, 255, 255, 0.38); margin: 8px 0 0; }
+.bday-note { font-size: 12px; line-height: 1.6; color: rgba(255, 255, 255, 0.45); margin: 8px 0 0; }
+.bday-note b { color: rgba(255, 255, 255, 0.75); font-weight: 600; }
 .hint { font-size: 13px; color: var(--dim); margin: 16px 0 0; min-height: 1.4em; transition: color 0.3s; }
 .hint b { color: var(--accent); }
 .examples { margin-top: 18px; display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; max-width: 560px; }

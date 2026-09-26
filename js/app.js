@@ -244,7 +244,7 @@
       ? `오늘은 <b>${esc(w.planet)}</b>에서 ${w.bday.n.toLocaleString('ko-KR')}번째 생일이에요`
       : n
         ? `지평선 너머에 <b>${esc(w.planet)}</b> 행성이 떠오르고 있어요 · ${esc(w.biome.name)}`
-        : '한 글자씩 입력할 때마다 지평선 너머의 행성이 바뀝니다';
+        : '';
     // 입력 중에는 곡을 매번 새로 작곡하지 않도록 잠시 멈췄을 때만 바꾼다
     if (music.playing) { clearTimeout(musicTimer); musicTimer = setTimeout(() => playMusic(w).catch(() => {}), 800); }
   }
@@ -376,7 +376,7 @@
     return `<div class="p-bday reveal" style="animation-delay:.3s">
       <div class="k">오늘은 이 행성에서</div>
       <div class="n">${num(b.n)}번째 생일</div>
-      <p>${esc(w.planet)}${NV.josa(w.planet, '은/는').slice(w.planet.length)} <b>${P}일</b>마다 별을 한 바퀴 돕니다.
+      <p>${esc(w.planet)}의 공전 주기(이 행성의 1년)는 <b>${P}일</b>입니다.
         태어난 지 <b>${num(b.days)}일</b>째인 오늘, 이 행성의 달력으로 <b>${num(b.n)}번째 해</b>가 끝납니다.
         오늘 생일을 맞는 실제 외계행성 ${num(b.count)}개 중 1년이 가장 긴 행성이에요.<br>
         이 행성에서의 다음 생일은 <b>${dt(b.next)}</b>입니다.</p>
