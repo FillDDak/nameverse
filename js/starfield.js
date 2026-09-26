@@ -49,7 +49,11 @@
       this.dpr = dpr;
       this.w = this.c.width = Math.floor(innerWidth * dpr);
       this.h = this.c.height = Math.floor(innerHeight * dpr);
-      const n = Math.min(1400, Math.floor(innerWidth * innerHeight / 1100));
+      // 가장 먼 곳(z=1)에서 화면 모서리까지 별이 생기도록, 넓은 쪽으로 범위를 넓힌다.
+      // 그렇지 않으면 화면 가장자리에는 가까운 별만 있어 가운데보다 별이 적어진다
+      const m = Math.max(this.w, this.h);
+      this.xr = Math.max(1.6, 2.05 * this.w / m); this.yr = Math.max(1.6, 2.05 * this.h / m);
+      const n = Math.min(1600, Math.floor(innerWidth * innerHeight / 1100 * 1.15));
       this.stars = Array.from({ length: n }, () => this._star(true));
       this._paintNebula();
     }
@@ -57,7 +61,7 @@
     _star(anyZ) {
       const hue = Math.random();
       return {
-        x: (Math.random() * 2 - 1) * 1.6, y: (Math.random() * 2 - 1) * 1.6,
+        x: (Math.random() * 2 - 1) * this.xr, y: (Math.random() * 2 - 1) * this.yr,
         z: anyZ ? Math.random() * 0.95 + 0.05 : 1,
         s: Math.random() * 1.2 + 0.3,
         tw: Math.random() * Math.PI * 2, tws: Math.random() * 2 + 0.5,
@@ -89,18 +93,25 @@
     _enterSky(view) {
       const W = this.w, H = this.h, F = view.focal, V = view.V, [sx, sy] = view.shift, C = view.cam;
       const cx = W / 2, cy = H / 2, scale = Math.max(W, H) * 0.5;
-      const sky = [];
+      const sky = [], cap = [];
       for (const s of this.stars) {
         const par = 1 / s.z;
         const x = cx + (s.x / s.z) * scale * 0.5 - this.mouse.x * 18 * par * this.dpr;
         const y = cy + (s.y / s.z) * scale * 0.5 - this.mouse.y * 18 * par * this.dpr;
-        if (x < 0 || x > W || y < 0 || y > H) continue;
-        // 화면 위치 그대로, 가까웠던 별(작은 z)일수록 카메라 가까이에 둔다
-        const ux = (x - cx) / H - sx, uy = (cy - y) / H - sy, l = Math.hypot(ux, uy, F);
-        const t = invCdf(s.z) + C; // 날아올 때 가까웠던 별(작은 z)은 가까이, 멀던 별은 아주 멀리. 행성에서 40 이상 떨어지게
-        const pv = [ux / l * t, uy / l * t, C - F / l * t];
-        sky.push(this._skyStar(this._toWorld(V, pv), s));
+        if (x >= 0 && x <= W && y >= 0 && y <= H) cap.push({ s, x, y });
       }
+      // 워프 중 화면에 보이던 별은 원근 때문에 대부분 먼 별이다. 그 깊이를 그대로 쓰면 처음 화면 영역만
+      // 가까운 밝은 별이 없어 시점을 돌렸을 때 네모난 경계가 보인다. 그래서 가까운 순서는 지키면서
+      // 깊이를 하늘 전체와 같은 분포의 순위대로 다시 매기고, 달라진 밝기·크기는 천천히 옮겨 간다
+      cap.sort((a, b) => a.s.z - b.s.z);
+      cap.forEach(({ s, x, y }, i) => {
+        const ux = (x - cx) / H - sx, uy = (cy - y) / H - sy, l = Math.hypot(ux, uy, F);
+        const t = invCdf((i + 0.5) / cap.length) + C; // 행성에서 40 이상 떨어지게
+        const pv = [ux / l * t, uy / l * t, C - F / l * t];
+        const st = this._skyStar(this._toWorld(V, pv), s);
+        st.near0 = 1 - s.z; st.blend = 0; // 워프 화면에서의 가까움(밝기·크기)에서 시작
+        sky.push(st);
+      });
       // 화면 밖의 나머지 공간도 같은 밀도로 채운다
       let hit = 0;
       const probe = [];
@@ -218,7 +229,12 @@
         st.tw += st.tws * dt;
         const q = this._project(p, view);
         if (!q) continue;
-        const near = nearness(q[2]);
+        let near = nearness(q[2]);
+        if (st.blend < 1) {
+          st.blend = Math.min(1, st.blend + dt / 1.5);
+          const k = st.blend * st.blend * (3 - 2 * st.blend);
+          near = st.near0 + (near - st.near0) * k;
+        }
         // 우주에는 대기가 없어 별이 거의 반짝이지 않는다
         const a = Math.min(1, (0.35 + near * 0.9) * (0.95 + 0.05 * Math.sin(st.tw))) * edge * st.fade;
         const size = Math.min(3.4 * this.dpr, st.s * (0.5 + near * 1.6) * this.dpr);
