@@ -285,8 +285,8 @@ vec3 skyColor(vec3 d, float ap){
   float cl = 0.5 + 0.5*fbm3(d*3.2 + 7.0);
   float dust = smoothstep(0.35, 0.75, 0.5 + 0.5*fbm3(d*7.0 + 3.0));
   vec3 mw = mix(vec3(0.5, 0.48, 0.62), vec3(0.78, 0.64, 0.5), cl)*band*(0.3 + 0.7*cl)*(1.0 - 0.65*dust)*0.06;
-  // 흐릿한 별 먼지만 셰이더가 그리고, 또렷한 별은 2D 별밭(워프로 지나온 별 그대로)이 그린다
-  return starLayer(d, 330.0, ap, band*0.35, 0.25) + mw;
+  // 무한히 먼 배경 별 두 겹(하늘 전체) + 은하수 띠의 별 먼지. 가까운 또렷한 별은 2D 별밭이 그린다
+  return starLayer(d, 120.0, ap, 0.09, 0.5) + starLayer(d, 240.0, ap, 0.07 + band*0.2, 0.3) + starLayer(d, 330.0, ap, band*0.35, 0.25) + mw;
 }
 
 void main(){

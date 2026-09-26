@@ -5,8 +5,9 @@
 
   // 행성 화면의 별 공간 (행성 반지름 = 1, 카메라는 행성 중심에서 6)
   // 별은 한 변 2·SKY_BOX인 넓은 공간에 고르게 흩어져 있고, 행성 반경 SKY_MIN 안에는 두지 않는다
-  const SKY_NEAR = 25, SKY_FAR = 170, SKY_MIN = 25, SKY_BOX = 200;
-  const SKY_DRIFT = 0.04; // 화면 왼쪽으로 흐르는 속도 (공간 단위/초): 가까운 별도 초당 1픽셀 안팎
+  // 가까운 별은 적게, 먼 별은 많게: 먼 거리일수록 부피가 커서 자연히 먼 별이 대부분이 된다
+  const SKY_NEAR = 45, SKY_FAR = 300, SKY_MIN = 50, SKY_BOX = 320;
+  const SKY_DRIFT = 0.05; // 화면 왼쪽으로 흐르는 속도 (공간 단위/초): 가장 가까운 별도 초당 1픽셀 안팎
 
   class Starfield {
     constructor(canvas) {
