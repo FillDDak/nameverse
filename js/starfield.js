@@ -18,6 +18,15 @@
   const nearness = (d) => 1 - cdf(d);
   const SKY_DRIFT = 0.05; // 화면 왼쪽으로 흐르는 속도 (공간 단위/초): 가장 가까운 별도 초당 1픽셀 안팎
 
+  // 부드러운 빛 점 (혜성 꼬리·코마를 그릴 때 겹쳐 찍는다)
+  function glowSprite(r, g, b) {
+    const c = document.createElement('canvas'); c.width = c.height = 64;
+    const x = c.getContext('2d'), grd = x.createRadialGradient(32, 32, 0, 32, 32, 32);
+    [[0, 1], [0.2, 0.75], [0.45, 0.3], [0.7, 0.08], [1, 0]].forEach(([o, a]) => grd.addColorStop(o, `rgba(${r},${g},${b},${a})`));
+    x.fillStyle = grd; x.fillRect(0, 0, 64, 64);
+    return c;
+  }
+
   class Starfield {
     constructor(canvas) {
       this.c = canvas;
@@ -28,6 +37,10 @@
       this.shooting = [];
       this.view = null;  // 행성 화면의 카메라 {V, focal, shift}: 있으면 별들을 하늘에 고정한다
       this.sky = null;   // 하늘에 고정된 별들 (월드 방향)
+      this.comet = null;
+      this.ionSprite = glowSprite(110, 175, 255);  // 이온 꼬리: 일산화탄소 이온이 내는 푸른빛
+      this.comaSprite = glowSprite(170, 255, 200); // 코마: 탄소 분자(C2)가 내는 초록빛
+      this.coreSprite = glowSprite(255, 255, 250);
       this.nebula = document.createElement('canvas');
       this.resize();
       window.addEventListener('pointermove', (e) => {
@@ -125,6 +138,75 @@
       return [x, y, -z];
     }
 
+    // _project와 같지만 화면 밖이어도 돌려준다 (혜성 꼬리가 화면 가장자리에 걸칠 때)
+    _projectRaw(p, view) {
+      const V = view.V, F = view.focal, [sx, sy] = view.shift, H = this.h;
+      const z = V[6] * p[0] + V[7] * p[1] + V[8] * p[2] - view.cam;
+      if (z > -1) return null;
+      return [this.w / 2 + ((V[0] * p[0] + V[1] * p[1] + V[2] * p[2]) / -z * F + sx) * H,
+        H / 2 - ((V[3] * p[0] + V[4] * p[1] + V[5] * p[2]) / -z * F + sy) * H, -z];
+    }
+
+    /* 혜성: 먼 곳을 수십 초에 걸쳐 천천히 가로지른다. 꼬리는 늘 모항성 반대쪽을 향한다(항성풍과 빛의 압력).
+     * 푸르고 곧은 이온 꼬리와, 궤도를 따라 뒤로 휘는 누르스름한 먼지 꼬리(모항성 빛을 반사) 두 갈래 */
+    _spawnComet(view) {
+      const H = this.h, F = view.focal, [sx, sy] = view.shift, V = view.V;
+      const D = 3000 + Math.random() * 6000;       // 카메라에서의 거리 (가장 먼 별들 사이)
+      const ang = Math.random() * Math.PI * 2, dx = Math.cos(ang), dy = Math.sin(ang);
+      const off = (Math.random() - 0.5) * 0.5, half = Math.hypot(this.w / H, 1) * 0.5 + 0.2;
+      const at = (k) => {
+        const ux = dx * k - dy * off, uy = dy * k + dx * off; // 화면 중심 기준 좌표 (화면 높이 = 1)
+        return this._toWorld(V, [(ux - sx) * D / F, (uy - sy) * D / F, view.cam - D]);
+      };
+      const p0 = at(-half), p1 = at(half), T = 50 + Math.random() * 30;
+      const vel = [(p1[0] - p0[0]) / T, (p1[1] - p0[1]) / T, (p1[2] - p0[2]) / T];
+      const a = NV.LIGHT.map((x) => -x); // 반태양 방향
+      const va = vel[0] * a[0] + vel[1] * a[1] + vel[2] * a[2];
+      let b = [-(vel[0] - va * a[0]), -(vel[1] - va * a[1]), -(vel[2] - va * a[2])];
+      const bl = Math.hypot(b[0], b[1], b[2]) || 1; b = b.map((x) => x / bl);
+      const lc = view.lightCol || [1, 0.96, 0.9], dust = lc.map((x) => Math.round(255 * Math.min(1, x * 1.02)));
+      this.dustSprite = glowSprite(dust[0], Math.round(dust[1] * 0.92), Math.round(dust[2] * 0.78));
+      this.comet = { p: p0, vel, a, b, t: 0, T, L: D * (0.4 + Math.random() * 0.25) / F, r: D * 0.0026 / F, bright: 0.7 + Math.random() * 0.5 };
+    }
+
+    _drawComet(dt, view) {
+      const c = this.comet;
+      c.t += dt;
+      if (c.t > c.T) { this.comet = null; this.cometWait = 40 + Math.random() * 50; return; }
+      const p = c.p;
+      p[0] += c.vel[0] * dt; p[1] += c.vel[1] * dt; p[2] += c.vel[2] * dt;
+      const env = Math.min(1, c.t / 5, (c.T - c.t) / 5) * c.bright;
+      const ctx = this.ctx, F = view.focal, H = this.h;
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      // 점을 겹쳐 찍어 꼬리를 그린다. 간격 대비 크기로 불투명도를 맞춰 샘플 수와 상관없이 밝기가 같다
+      const tail = (sprite, len, bend, w0, w1, a0, n) => {
+        let prev = null;
+        for (let i = n; i >= 0; i--) {
+          const s = i / n;
+          const q = this._projectRaw([p[0] + (c.a[0] * s + c.b[0] * bend * s * s) * len, p[1] + (c.a[1] * s + c.b[1] * bend * s * s) * len,
+            p[2] + (c.a[2] * s + c.b[2] * bend * s * s) * len], view);
+          if (!q) { prev = null; continue; }
+          const rad = Math.max(1.2 * this.dpr, c.r * (w0 + (w1 - w0) * s) / q[2] * F * H);
+          const gap = prev ? Math.hypot(q[0] - prev[0], q[1] - prev[1]) : rad;
+          prev = q;
+          if (q[0] < -rad || q[0] > this.w + rad || q[1] < -rad || q[1] > H + rad) continue;
+          ctx.globalAlpha = Math.min(1, a0 * Math.pow(1 - s, 1.3) * Math.min(1, gap / rad) * env);
+          ctx.drawImage(sprite, q[0] - rad, q[1] - rad, rad * 2, rad * 2);
+        }
+      };
+      tail(this.ionSprite, c.L * 1.25, 0.03, 1.2, 4, 0.3, 90);
+      tail(this.dustSprite, c.L, 0.3, 2.2, 16, 0.4, 80);
+      const q = this._projectRaw(p, view);
+      if (q) {
+        const R = c.r / q[2] * F * H;
+        const coma = Math.max(3 * this.dpr, R * 5), core = Math.max(1.4 * this.dpr, R * 1.2);
+        ctx.globalAlpha = 0.55 * env; ctx.drawImage(this.comaSprite, q[0] - coma, q[1] - coma, coma * 2, coma * 2);
+        ctx.globalAlpha = Math.min(1, 0.95 * env); ctx.drawImage(this.coreSprite, q[0] - core, q[1] - core, core * 2, core * 2);
+      }
+      ctx.restore();
+    }
+
     _drawSky(dt) {
       const ctx = this.ctx, view = this.view, V = view.V;
       // 카메라의 오른쪽 방향(월드 좌표)의 반대로 이동 → 화면에서는 늘 왼쪽으로 흐른다
@@ -161,8 +243,8 @@
       if (changed && ((this._nt = (this._nt || 0) + dt) > 0.1)) { this._nt = 0; this._paintNebula(); }
 
       // 행성에 도착하면(워프가 잦아들면) 지나온 별들을 그 자리 그대로 하늘에 고정한다
-      if (this.view && !this.sky && this.warp < 0.08) this._enterSky(this.view);
-      if (!this.view && this.sky) this.sky = null; // 다시 떠나면 멈춰 있던 자리에서 이어서 흐른다
+      if (this.view && !this.sky && this.warp < 0.08) { this._enterSky(this.view); this.comet = null; this.cometWait = 12 + Math.random() * 10; }
+      if (!this.view && this.sky) { this.sky = null; this.comet = null; } // 다시 떠나면 멈춰 있던 자리에서 이어서 흐른다
       this.skyFade = this.sky ? Math.min(1, (this.skyFade || 0) + dt * 1.5) : 0;
 
       ctx.fillStyle = '#03030a';
@@ -171,7 +253,13 @@
       ctx.globalAlpha = (0.9 - this.warp * 0.4) * (1 - this.skyFade * 0.75); // 성운은 은하수(셰이더)에게 자리를 내준다
       ctx.drawImage(this.nebula, -this.mouse.x * 30 * this.dpr - 20, -this.mouse.y * 30 * this.dpr - 20, W + 40, H + 40);
       ctx.globalAlpha = 1;
-      if (this.sky) { this._drawSky(dt); ctx.restore(); return; }
+      if (this.sky) {
+        this._drawSky(dt);
+        // 도착하고 조금 뒤 첫 혜성, 그다음부터는 1~2분에 한 번꼴
+        if (this.comet) this._drawComet(dt, this.view);
+        else if ((this.cometWait -= dt) <= 0) this._spawnComet(this.view);
+        ctx.restore(); return;
+      }
 
       const cx = W / 2, cy = H / 2, scale = Math.max(W, H) * 0.5;
       const speed = 0.012 + this.warp * 2.4;

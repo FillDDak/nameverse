@@ -20,6 +20,7 @@ uniform float uBands, uTurb, uStormSize; uniform vec3 uStorm;
 uniform float uRing, uRingSeed; uniform vec3 uRingN; uniform vec2 uRingR; uniform vec3 uRingCol;
 uniform vec4 uMoon0, uMoon1, uMoon2; uniform vec3 uMoonCol0, uMoonCol1, uMoonCol2;
 uniform float uStarR, uSkyFocal, uSky; uniform mat3 uView;
+uniform vec4 uMetA0, uMetB0, uMetA1, uMetB1; // 유성: A.xyz 시작, A.w 머리 위치(0~1), B.xyz 끝, B.w 밝기
 
 // 3D simplex noise (Ashima Arts / Ian McEwan, MIT) — 좌표가 커져도 격자 무늬나 정밀도 깨짐이 없다
 vec3 mod289(vec3 x){ return x - floor((x + 0.5)*(1.0/289.0))*289.0; }
@@ -250,6 +251,22 @@ vec3 shadePlanet(vec3 n, vec3 rd, vec3 p, float px){
   return c;
 }
 
+// 유성: 밤 쪽 대기에 잠깐 그어지는 빛줄기. 머리가 A→B로 달리고 뒤로 짧은 꼬리가 남는다
+vec3 meteor(vec3 n, float px, vec4 A, vec4 B){
+  if(B.w <= 0.0) return vec3(0.0);
+  vec3 hd = mix(A.xyz, B.xyz, A.w);
+  vec3 tl = mix(A.xyz, B.xyz, max(A.w - 0.5, 0.0));
+  vec3 ab = hd - tl;
+  float s = clamp(dot(n - tl, ab)/max(dot(ab, ab), 1e-9), 0.0, 1.0);
+  vec3 dv = n - tl - ab*s;
+  float w = max(px*0.6, 0.0008);
+  float d2 = dot(dv, dv)/(w*w);
+  float h2 = dot(n - hd, n - hd)/(w*w);
+  // 꼬리는 주황빛으로 식어 가고, 머리는 금속이 타는 초록빛 흰색
+  vec3 tc = mix(vec3(1.0, 0.5, 0.2), vec3(0.8, 1.0, 0.85), s*s);
+  return (tc*exp(-d2)*pow(s, 1.5)*2.4 + vec3(0.85, 1.0, 0.9)*(exp(-h2*0.6)*1.8 + exp(-h2*0.05)*0.12))*B.w;
+}
+
 void traceMoon(vec3 ro, vec3 rd, vec4 m, vec3 mc, float idx, inout float tBest, inout vec3 oc, inout float oa){
   if(m.w <= 0.0) return;
   float t = iSphere(ro, rd, m.xyz, m.w);
@@ -315,6 +332,7 @@ void main(){
     float t = -b - sqrt(h);
     vec3 p = ro + rd*t;
     vec3 pc = shadePlanet(normalize(p), rd, p, px);
+    pc += meteor(normalize(p), px, uMetA0, uMetB0) + meteor(normalize(p), px, uMetA1, uMetB1);
     oc = 1.0 - exp(-pc*1.25);
     oa = smoothstep(0.0, 1.5*px, 1.0 - dist);
     tBest = t;
@@ -432,6 +450,7 @@ void main(){
       this.zoom = 1;
       this.pulse = 0;
       this.cam = { yaw: 0, pitch: 0, vyaw: 0, vpitch: 0 }; // 행성 주위를 도는 시점
+      this.meteors = []; this.metNext = 0;
       this.layout = () => [{ x: 0, y: 0, w: canvas.width, h: canvas.height, shift: [0, 0], fit: 0.4 }];
       this._build();
     }
@@ -512,10 +531,39 @@ void main(){
       gl.clear(gl.COLOR_BUFFER_BIT);
       if (!this.slots.length) return;
       const vps = this.layout(W, H, this.slots.length);
-      this.slots.forEach((slot, i) => this._draw(slot, vps[i], time));
+      if (vps[0] && vps[0].sky) this._updateMeteors(this.slots[0], vps[0], time);
+      else this.meteors = [];
+      this.slots.forEach((slot, i) => this._draw(slot, vps[i], time, i === 0 && vps[i].sky));
     }
 
-    _draw(slot, vp, time) {
+    /* 유성: 카메라에서 보이는 행성의 밤 쪽 대기에 드물게 그어진다.
+     * 실제 유성 자국보다는 조금 길게(반지름의 3~7%) 그렸고, 가끔 더 밝고 긴 화구(fireball)가 떨어진다 */
+    _updateMeteors(slot, vp, time) {
+      const st = this._state(slot, time, vp);
+      if (st.alpha < 1) { this.metNext = time + 3; return; }
+      if (time > this.metNext) {
+        this.metNext = time + 2 + Math.random() * 5;
+        const L = st.light;
+        for (let k = 0; k < 16; k++) {
+          const u = Math.random() * 2 - 1, th = Math.random() * Math.PI * 2, rr = Math.sqrt(1 - u * u);
+          const n = [rr * Math.cos(th), rr * Math.sin(th), u];
+          // 카메라를 향한 쪽(가장자리 제외)이면서 해가 진 쪽
+          if (n[2] < 0.3 || n[0] * L[0] + n[1] * L[1] + n[2] * L[2] > -0.12) continue;
+          const fire = Math.random() < 0.1;
+          const r = norm([Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5]);
+          const tg = norm([n[1] * r[2] - n[2] * r[1], n[2] * r[0] - n[0] * r[2], n[0] * r[1] - n[1] * r[0]]);
+          const len = fire ? 0.09 + Math.random() * 0.07 : 0.03 + Math.random() * 0.04;
+          const b = norm([n[0] + tg[0] * len, n[1] + tg[1] * len, n[2] + tg[2] * len]);
+          const Vt = M.transpose(st.V); // 시점을 돌려도 행성에 붙어 있도록 월드 좌표로 저장
+          this.meteors.push({ a: M.vec(Vt, n), b: M.vec(Vt, b), t0: time,
+            dur: fire ? 1.1 + Math.random() * 0.7 : 0.35 + Math.random() * 0.45, bright: fire ? 2.2 : 0.7 + Math.random() * 0.6 });
+          break;
+        }
+      }
+      this.meteors = this.meteors.filter((m) => time - m.t0 < m.dur + 0.4).slice(-2);
+    }
+
+    _draw(slot, vp, time, meteors) {
       const gl = this.gl, u = this.u, v = slot.world.visual;
       const st = this._state(slot, time, vp);
       gl.viewport(vp.x, vp.y, vp.w, vp.h);
@@ -549,6 +597,15 @@ void main(){
         f4('uMoon' + i, m || [0, 0, 0, 0]);
         f3('uMoonCol' + i, m ? v.moons[i].color : [0, 0, 0]);
       }
+      for (let i = 0; i < 2; i++) {
+        const m = meteors && this.meteors[i];
+        if (!m) { f4('uMetA' + i, [0, 0, 1, 0]); f4('uMetB' + i, [0, 0, 1, 0]); continue; }
+        const age = time - m.t0, prog = Math.min(1, age / m.dur);
+        // 순식간에 밝아지고, 머리가 멈춘 뒤 자국이 잠깐 남았다 사라진다
+        const env = age < m.dur ? Math.min(1, age / 0.06) : Math.max(0, 1 - (age - m.dur) / 0.35);
+        f4('uMetA' + i, M.vec(st.V, m.a).concat(prog));
+        f4('uMetB' + i, M.vec(st.V, m.b).concat(m.bright * env));
+      }
       gl.drawArrays(gl.TRIANGLES, 0, 3);
     }
 
@@ -558,7 +615,8 @@ void main(){
       const vp = this.layout(this.canvas.width, this.canvas.height, this.slots.length)[0];
       if (!vp || !vp.sky) return null;
       const st = this._state(this.slots[0], time, vp);
-      return { V: st.V, focal: st.skyFocal, shift: vp.shift, cam: CAM + (st.camDist - CAM) * STAR_DOLLY };
+      const v = this.slots[0].world.visual;
+      return { V: st.V, focal: st.skyFocal, shift: vp.shift, cam: CAM + (st.camDist - CAM) * STAR_DOLLY, lightCol: v.lightCol || [1, 0.96, 0.9] };
     }
 
     // 화면 좌표(캔버스 픽셀, 위쪽 원점) → 행성 표면의 로컬 좌표
