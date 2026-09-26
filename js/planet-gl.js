@@ -23,6 +23,7 @@ uniform float uStarR, uSkyFocal, uSky; uniform mat3 uView;
 uniform vec4 uSib[7], uSibL[7]; // 이웃 행성: 방향(시점 좌표) + 보이는 반지름(rad), 이웃 행성에서 모항성 방향 + 색 번호
 uniform vec4 uStar2; uniform vec3 uStar2Col; // 두 번째 해: 방향(시점 좌표) + 보이는 반지름
 uniform vec4 uComp[2], uCompC[2];            // 멀리 떨어진 동반성: 방향 + 밝기, 색
+uniform vec2 uFlare; uniform vec3 uAurora; // 플레어: x 모항성 밝아짐, y 오로라 세기 / 오로라 색
 uniform vec3 uLock; // 조석 고정: x 여부, y 얼음 경계(별을 마주한 정도 cos θ가 이보다 작으면 얼음), z 낮 쪽 한가운데의 달아오름
 uniform vec4 uCmH, uCmI, uCmD; uniform vec3 uCmCol; // 혜성: 머리(xy, 크기, 밝기), 이온 꼬리 끝(xy, 범위, 씨앗), 먼지 꼬리 베지어(조절점, 끝)
 uniform vec4 uMetA0, uMetB0, uMetA1, uMetB1; // 유성: A.xyz 시작, A.w 머리 위치(0~1), B.xyz 끝, B.w 밝기
@@ -246,7 +247,7 @@ vec3 shadePlanet(vec3 n, vec3 rd, vec3 p, float px){
   float sh = ringShadow(p)*moonShadow(p, uMoon0)*moonShadow(p, uMoon1)*moonShadow(p, uMoon2);
   float term = smoothstep(-0.1, 0.15, ndl);
   float dl = max(dot(nb, uLight), 0.0)*term*sh;
-  vec3 lightCol = uLightCol;
+  vec3 lightCol = uLightCol*(1.0 + 0.5*uFlare.x); // 플레어가 일어나면 행성도 잠깐 더 밝게 비춘다
   vec3 c = base*(dl*1.15 + 0.015)*lightCol*(1.0 - cloud*0.3);
   float mu = max(dot(n, -rd), 0.0);
   if(uType == 1) c *= mix(0.55, 1.0, sqrt(mu));
@@ -257,6 +258,16 @@ vec3 shadePlanet(vec3 n, vec3 rd, vec3 p, float px){
   c += uAtmo*water*fres*0.12*term;
   c += emit*(1.0 - cloud*0.75);
   c = mix(c, uCloudCol*lightCol*(max(ndl, 0.0)*1.15*sh + 0.02), cloud*0.95);
+  if(uFlare.y > 0.001){
+    // 오로라: 자전축 극 둘레의 고리(구름보다 높은 곳). 활동이 셀수록 적도 쪽으로 내려오고 커튼처럼 일렁인다. 밤 쪽에서 잘 보인다
+    vec3 lq = uRot*n;
+    float colat = acos(clamp(abs(lq.y), 0.0, 1.0));
+    float wob = 0.06*snoise(vec3(lq.x*3.0, lq.z*3.0, uTime*0.15 + step(0.0, lq.y)*7.0));
+    float dd = colat - (0.3 + 0.28*uFlare.y) - wob;
+    float band = exp(-dd*dd/0.0035) + 0.35*exp(-dd*dd/0.03);
+    float curtain = 0.5 + 0.5*snoise(vec3(lq.x*16.0, lq.z*16.0, uTime*0.45));
+    c += uAurora*band*(0.35 + 0.65*curtain)*uFlare.y*(1.0 - day*0.8)*1.4;
+  }
 
   // 대기: 가장자리로 갈수록 두꺼워지고, 낮과 밤 경계는 노을빛
   float path = 1.0/(mu*0.9 + 0.1);
@@ -507,10 +518,12 @@ void main(){
   // 모항성: 망원경 사진 속 별처럼 (Moffat 분포). 가운데는 하얗게 포화되고, 바깥으로 갈수록 별 색이 드러나며 퍼진다
   float sd = 2.0*asin(clamp(length(rdS - uLight)*0.5, 0.0, 1.0));
   float r0 = max(uStarR, apS*1.5);
-  float q2 = sd*sd/(r0*r0);
+  float rf = r0*(1.0 + 0.8*uFlare.x); // 플레어 때는 포화된 빛이 번져 별이 커 보인다
+  float q2 = sd*sd/(rf*rf);
   // 빛의 파장마다 퍼짐이 조금씩 달라서 가장자리에 옅은 색 테가 생긴다
-  vec3 core = vec3(pow(1.0 + q2/1.1, -2.4), pow(1.0 + q2, -2.4), pow(1.0 + q2/0.9, -2.4))*6.0;
-  vec3 hue = mix(tint, vec3(1.0), 0.2);
+  // 플레어: 별이 확 밝아지며 푸르스름한 흰색으로 (플레어는 표면보다 훨씬 뜨겁다)
+  vec3 core = vec3(pow(1.0 + q2/1.1, -2.4), pow(1.0 + q2, -2.4), pow(1.0 + q2/0.9, -2.4))*6.0*(1.0 + 2.0*uFlare.x);
+  vec3 hue = mix(mix(tint, vec3(1.0), 0.2), vec3(0.85, 0.92, 1.0), uFlare.x*0.6);
   vec3 coreC = 1.0 - exp(-core*hue);
   float coreA = min(1.0, max(coreC.r, max(coreC.g, coreC.b)));
   col += coreC*(1.0 - alpha);
@@ -531,7 +544,7 @@ void main(){
     alpha += min(1.0, max(sky.r, max(sky.g, sky.b)))*(1.0 - alpha);
   }
   // 넓게 번지는 빛과 회절 빛줄기는 렌즈에서 생기므로 행성 위에도 겹친다. 두 번째 해가 있으면 더 약하게 함께
-  vec3 flare = starFlare(uLight, r0, hue, uv, ro, 1.0);
+  vec3 flare = starFlare(uLight, r0*(1.0 + 2.5*uFlare.x), hue, uv, ro, 1.0 + 2.0*uFlare.x);
   if(uStar2.w > 0.0) flare = 1.0 - (1.0 - flare)*(1.0 - starFlare(uStar2.xyz, max(uStar2.w, apS*1.5), hue2, uv, ro, 0.5));
   // 멀리 떨어진 동반성: 어떤 별보다도 훨씬 밝아서(보름달급) 약한 빛줄기가 생긴다
   for(int i = 0; i < 2; i++){
@@ -670,9 +683,23 @@ void main(){
       gl.clear(gl.COLOR_BUFFER_BIT);
       if (!this.slots.length) return;
       const vps = this.layout(W, H, this.slots.length);
-      if (vps[0] && vps[0].sky) this._updateMeteors(this.slots[0], vps[0], time);
-      else this.meteors = [];
+      if (vps[0] && vps[0].sky) { this._updateMeteors(this.slots[0], vps[0], time); this._updateFlare(this.slots[0], time); }
+      else { this.meteors = []; this.flareNow = [0, 0]; }
       this.slots.forEach((slot, i) => this._draw(slot, vps[i], time, i === 0 && vps[i].sky));
+    }
+
+    /* 적색왜성의 플레어: 실제 광도 곡선처럼 빠르게(0.6초) 치솟고 몇 초에 걸쳐 천천히 식는다.
+     * 뒤이어 오로라가 번졌다가 20초쯤에 걸쳐 사라진다. 도착 10~25초 뒤 처음, 이후 45~120초마다 */
+    _updateFlare(slot, time) {
+      const v = slot.world.visual;
+      if (this.flareWorld !== slot.world.key) { this.flareWorld = slot.world.key; this.flareAt = null; this.flareNext = time + 10 + Math.random() * 15; }
+      if (!v.flare) { this.flareNow = [0, 0]; return; }
+      if (time > this.flareNext) { this.flareAt = time; this.flareAmp = 0.55 + Math.random() * 0.45; this.flareNext = time + 45 + Math.random() * 75; }
+      if (this.flareAt == null) { this.flareNow = [0, 0]; return; }
+      const t = time - this.flareAt, A = this.flareAmp;
+      const star = t < 0.6 ? (t / 0.6) * (t / 0.6) : Math.exp(-(t - 0.6) / 2.8);
+      const x = Math.min(1, Math.max(0, (t - 2.5) / 3)), aur = x * x * (3 - 2 * x) * Math.exp(-Math.max(0, t - 5.5) / 9);
+      this.flareNow = [A * star, A * aur];
     }
 
     /* 유성: 카메라에서 보이는 행성의 밤 쪽 대기에 드물게 그어진다.
@@ -726,6 +753,7 @@ void main(){
       });
       f1('uSea', v.sea); f1('uClouds', v.clouds); f1('uIce', v.ice); f1('uCity', v.city);
       f3('uLock', [v.locked ? 1 : 0, v.lockIce != null ? v.lockIce : -2, v.lockGlow || 0]);
+      f2('uFlare', meteors && this.flareNow ? this.flareNow : [0, 0]); f3('uAurora', v.auroraCol || [0.35, 1, 0.55]);
       f1('uWarp', v.warp); f1('uScale', v.scale); f1('uAtmoStr', v.atmoStr); f1('uSpec', v.spec);
       f1('uBands', v.bands); f1('uTurb', v.turb); f1('uStormSize', v.stormSize || 0.1); f3('uStorm', v.storm);
       f1('uRing', v.ring ? 1 : 0);

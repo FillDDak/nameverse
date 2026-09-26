@@ -452,6 +452,7 @@
       out.push(`모항성 ${josa(p.host, '은/는')} ${sc.color} ${sc.cls}형 별입니다.`);
     }
     if (/Pulsar/.test(p.method)) out.push('모항성은 초신성 폭발 뒤에 남은 펄서라서, 하늘에 보통의 해가 뜨지 않습니다.');
+    if (p.teff != null && p.teff < 3900) out.push('적색왜성은 표면에서 플레어(갑작스러운 폭발)가 자주 일어납니다. 가끔 모항성이 순간적으로 밝아지고, 뒤이어 행성의 극지방에 오로라가 번집니다(실제로는 몇 시간에서 며칠 뒤이지만 화면에서는 몇 초로 줄였습니다).');
     const pt = periodText(p.per);
     if (pt) out.push(`이곳의 1년은 ${pt}입니다.`);
     if (p.a != null && p.a < 0.1 && p.rade < 6) out.push('별에 매우 가까워서 조석 고정되었을 가능성이 높습니다. 그렇다면 한쪽은 늘 낮, 반대쪽은 늘 밤입니다. 그림 속 행성도 자전하지 않고 늘 같은 면이 별을 향하도록 그렸습니다.');
@@ -530,6 +531,10 @@
     if (biome.id === 'gas') gasPalette(v, p.eqt, p.method, root.fork('palette'));
     if (biome.id === 'desert') { v.sea = Math.min(v.sea, 0.12); v.city = 0; v.ice = 1.5; v.clouds = Math.min(v.clouds, 0.08); } // 뜨거운 행성: 바다·극관·도시 불빛 없음
     v.lightCol = starColor(p.teff).map((c) => 0.45 + 0.55 * c);
+    // 적색왜성(M형)은 플레어가 잦다: 가끔 별이 확 밝아지고, 뒤이어 극지방에 오로라가 번진다.
+    // 오로라 색은 대기의 기체가 정한다: 암석 행성은 산소의 초록빛, 가스 행성은 수소의 분홍빛
+    v.flare = p.teff != null && p.teff < 3900;
+    v.auroraCol = v.type === 1 ? [1.0, 0.38, 0.8] : [0.35, 1.0, 0.55];
     // 행성에서 본 모항성의 실제 겉보기 반지름 (라디안, 태양 반지름 = 0.00465 AU)
     // 가까이 붙은 거대한 별도 '아주 멀리 있는 광원'으로 느껴지도록 큰 쪽은 눌러서 그린다 (태양 크기는 그대로)
     const realAng = /Pulsar/.test(p.method) ? 0.0025
