@@ -441,8 +441,50 @@
     return out.join(' ');
   }
 
+  /* ───────────── 오늘 생일을 맞는 행성 ─────────────
+   * 태어난 날부터 오늘까지 D일. 공전 주기가 P일인 행성에서 N번째 해가 끝나는 순간(태어난 지 N·P일)이
+   * 오늘 하루 안(D ≤ N·P < D+1)에 있으면, 그 행성의 달력으로 오늘이 N번째 생일이다.
+   * 그런 행성(날마다 800~900개) 중 1년이 가장 긴 행성, 즉 가장 드물게 찾아오는 생일을 고른다.
+   * 태어난 시각은 모르므로 하루 단위로 세고, 공전 주기가 하루보다 짧은 행성(하루에도 생일이 여러 번)은 뺀다 */
+  const dayNum = (s) => {
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s || '');
+    return m ? Math.round(Date.UTC(+m[1], +m[2] - 1, +m[3]) / 864e5) : null;
+  };
+  const dayStr = (n) => new Date(n * 864e5).toISOString().slice(0, 10);
+  function todayStr() {
+    const t = new Date(), p = (x) => String(x).padStart(2, '0');
+    return `${t.getFullYear()}-${p(t.getMonth() + 1)}-${p(t.getDate())}`;
+  }
+  function birthdayMatches(D) {
+    const out = [];
+    EXO.rows.forEach((r, i) => {
+      const P = r[7];
+      if (!(P >= 1)) return;
+      const N = Math.ceil(D / P);
+      if (N >= 1 && N * P < D + 1) out.push({ index: i, n: N, period: P });
+    });
+    return out;
+  }
+  // 생일(YYYY-MM-DD) → {index, n, date}. 오늘 이전의 날짜가 아니면 null
+  function birthdayPlanet(birth, today) {
+    const b = dayNum(birth), t = dayNum(today || todayStr());
+    if (b == null || t == null || t - b < 1 || b < dayNum('1900-01-01')) return null;
+    const m = birthdayMatches(t - b);
+    if (!m.length) return null;
+    const best = m.reduce((x, y) => (y.period > x.period ? y : x));
+    return { index: best.index, n: best.n, date: dayStr(t) };
+  }
+  // 링크에 담긴 값(행성 번호, 몇 번째 생일, 기준 날짜)만으로 설명을 다시 만든다. 생일 자체는 필요 없다
+  function birthdayInfo(index, n, date) {
+    const row = EXO.rows[index], t = dayNum(date);
+    const P = row && row[7];
+    if (!(P >= 1) || !(n >= 1) || t == null) return null;
+    const D = Math.floor(n * P); // 태어난 지 D일째 되는 날이 오늘
+    return { n, period: P, days: D, date, count: birthdayMatches(D).length, next: dayStr(t + Math.floor((n + 1) * P) - D) };
+  }
+
   /* ───────────── 창조 ───────────── */
-  function genesis(rawName, forceIndex) {
+  function genesis(rawName, forceIndex, bday) {
     const owner = NV.normalizeName(rawName) || '이름 없는 별';
     const key = NV.nameKey(owner) || owner;
     const root = NV.makeRng('nameverse/v1/' + key);
@@ -577,7 +619,10 @@
     };
 
     return {
-      owner, key, planet, catalog: p.host, exo: p, exoIndex, biome: { id: biome.id, name: biome.name, cat: biome.cat },
+      // 생일로 고른 행성은 같은 이름이라도 다른 행성이므로 구별한다
+      owner, key: forceIndex != null ? `${key}@${exoIndex}` : key, planet, catalog: p.host, exo: p, exoIndex,
+      bday: bday ? birthdayInfo(exoIndex, bday.n, bday.date) : null,
+      biome: { id: biome.id, name: biome.name, cat: biome.cat },
       rarity, visual: v, stats, lore, proverb, tags, role, constellation: p.con, coords: { ra: raText(p.ra), dec: decText(p.dec) },
       moonNames, music, accent: toCss(v.atmo), accentRgb: v.atmo,
     };
@@ -623,6 +668,8 @@
   }
 
   NV.genesis = genesis;
+  NV.birthdayPlanet = birthdayPlanet;
+  NV.todayStr = todayStr;
   NV.harmony = harmony;
   NV.josa = josa;
   NV.hsl = hsl;

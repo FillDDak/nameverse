@@ -14,7 +14,8 @@
   const MODE_KO = { dorian: '도리안', lydian: '리디안', phrygian: '프리지안', mixolydian: '믹솔리디안', aeolian: '에올리안', ionian: '이오니안' };
 
   const el = {
-    body: document.body, intro: $('#intro'), form: $('#form'), name: $('#name'), hint: $('#live-hint'), examples: $('#examples'),
+    body: document.body, intro: $('#intro'), form: $('#form'), name: $('#name'), bday: $('#bday'), bdayBox: $('.bday'),
+    hint: $('#live-hint'), examples: $('#examples'),
     scan: $('#scan'), scanName: $('#scan-name'), scanLine: $('#scan-line'), scanCoord: $('#scan-coord'),
     panel: $('#panel'), duoPanel: $('#duo-panel'), duoLabels: $('#duo-labels'),
     probe: $('#probe'), marker: $('#probe-marker'), atlas: $('#atlas'), atlasList: $('#atlas-list'), atlasCount: $('#atlas-count'),
@@ -166,11 +167,13 @@
     el.body.className = 'mode-' + m;
   }
 
-  /* ───────────── 라우팅: #n=이름&m=상대 ───────────── */
-  function go(n, m) {
+  /* ───────────── 라우팅: #n=이름&m=상대, 생일 행성은 #n=이름&p=행성 번호&k=몇 번째 생일&d=기준 날짜 ─────────────
+   * 생일 자체는 주소에 담지 않는다. 이 세 값만으로 같은 행성과 설명이 그대로 재현된다 */
+  function go(n, m, bd) {
     const p = new URLSearchParams();
     p.set('n', n);
     if (m) p.set('m', m);
+    if (bd) { p.set('p', bd.p); p.set('k', bd.k); p.set('d', bd.d); }
     const h = '#' + p.toString();
     if (location.hash === h) route(); else location.hash = h;
   }
@@ -179,8 +182,10 @@
     const n = NV.normalizeName(p.get('n') || '');
     const m = NV.normalizeName(p.get('m') || '');
     closeOverlays();
+    const bp = +p.get('p'), bk = +p.get('k'), bd = p.get('d');
+    const bday = Number.isInteger(bp) && bp >= 0 && bp < NV.EXO.rows.length && bk >= 1 && /^\d{4}-\d{2}-\d{2}$/.test(bd || '') ? { p: bp, k: bk, d: bd } : null;
     if (n && m) enterDuo(n, m);
-    else if (n) enterWorld(n);
+    else if (n) enterWorld(n, bday);
     else showIntro();
   }
   addEventListener('hashchange', route);
@@ -198,10 +203,21 @@
     updatePreview(true);
   }
 
+  // 입력한 생일로 오늘 생일인 행성 → {p, k, d}. 비었거나 올바르지 않으면 null
+  function bdayPick() {
+    const r = el.bday.value ? NV.birthdayPlanet(el.bday.value) : null;
+    return r && { p: r.index, k: r.n, d: r.date };
+  }
+  function makeWorld(n, bd) {
+    const w = bd ? NV.genesis(n, bd.p, { n: bd.k, date: bd.d }) : null;
+    return w && w.bday ? w : NV.genesis(n);
+  }
+
   let previewTimer;
   function updatePreview(force) {
     const n = NV.normalizeName(el.name.value);
-    const w = NV.genesis(n || DEFAULT_PREVIEW);
+    const bd = bdayPick();
+    const w = makeWorld(n || DEFAULT_PREVIEW, bd);
     if (!force && S.preview && S.preview.key === w.key) return;
     S.preview = w;
     if (renderer) {
@@ -210,9 +226,11 @@
       renderer.setWorlds([w], { grow: false });
     }
     setAccent(w);
-    el.hint.innerHTML = n
-      ? `지평선 너머에 <b>${esc(w.planet)}</b> 행성이 떠오르고 있어요 · ${esc(w.biome.name)}`
-      : '한 글자씩 입력할 때마다 지평선 너머의 행성이 바뀝니다';
+    el.hint.innerHTML = w.bday
+      ? `오늘은 <b>${esc(w.planet)}</b>에서 ${w.bday.n.toLocaleString('ko-KR')}번째 생일이에요`
+      : n
+        ? `지평선 너머에 <b>${esc(w.planet)}</b> 행성이 떠오르고 있어요 · ${esc(w.biome.name)}`
+        : '이름과 생일을 넣으면 지평선 너머의 행성이 바뀝니다';
     // 입력 중에는 곡을 매번 새로 작곡하지 않도록 잠시 멈췄을 때만 바꾼다
     if (music.playing) { clearTimeout(musicTimer); musicTimer = setTimeout(() => playMusic(w).catch(() => {}), 800); }
   }
@@ -221,6 +239,8 @@
     clearTimeout(previewTimer);
     previewTimer = setTimeout(() => updatePreview(false), 90);
   });
+  el.bday.max = NV.todayStr();
+  el.bday.addEventListener('change', () => updatePreview(false));
 
   el.form.addEventListener('submit', (e) => {
     e.preventDefault();
@@ -230,8 +250,15 @@
       el.name.focus();
       return;
     }
-    el.name.blur();
-    go(n);
+    const bd = bdayPick();
+    if (el.bday.value && !bd) {
+      // 오늘이나 미래 날짜처럼 계산할 수 없는 생일
+      el.bdayBox.classList.remove('shake'); void el.bdayBox.offsetWidth; el.bdayBox.classList.add('shake');
+      toast('오늘 이전의 생일을 입력해 주세요');
+      return;
+    }
+    el.name.blur(); el.bday.blur();
+    go(n, null, bd);
   });
 
   el.examples.innerHTML = '<span class="lbl">이런 이름은 어때요?</span>' +
@@ -272,9 +299,13 @@
     el.scanName.innerHTML = [...title].map((ch, i) => `<span style="animation-delay:${i * 45}ms">${ch === ' ' ? '&nbsp;' : esc(ch)}</span>`).join('');
     const w = worlds[0];
     scramble(el.scanCoord, `RA ${w.coords.ra} · DEC ${w.coords.dec} · ${w.catalog}`, 2000);
+    const b = w.bday, num = (x) => x.toLocaleString('ko-KR');
     const lines = worlds.length > 1
       ? ['두 이름의 파동을 겹쳐 보는 중…', '두 행성의 궤도를 계산하는 중…', '중력의 공명을 측정하는 중…', '쌍성계 포착!']
-      : ['이름을 우주 좌표로 바꾸는 중…', `${w.constellation}자리 방향을 관측하는 중…`, `${w.catalog} 주변을 살피는 중…`, '행성 확인!'];
+      : b
+        ? [`태어난 지 ${num(b.days)}일째`, `외계행성 ${num(NV.EXO.rows.length)}개의 1년 길이와 맞춰 보는 중…`,
+          `오늘 생일인 행성 ${num(b.count)}개 발견`, '그중 1년이 가장 긴 행성 확인!']
+        : ['이름을 우주 좌표로 바꾸는 중…', `${w.constellation}자리 방향을 관측하는 중…`, `${w.catalog} 주변을 살피는 중…`, '행성 확인!'];
     for (const line of lines) {
       if (token !== S.scanToken) return false;
       el.scanLine.textContent = line;
@@ -288,8 +319,8 @@
   }
 
   /* ───────────── 3. 행성 ───────────── */
-  async function enterWorld(n) {
-    const w = NV.genesis(n);
+  async function enterWorld(n, bd) {
+    const w = makeWorld(n, bd);
     const same = S.world && S.world.key === w.key && (S.mode === 'world' || S.mode === 'duo');
     if (!same && !(await scan([w]))) return;
     S.world = w; S.partner = null;
@@ -323,6 +354,22 @@
       + (r.reason ? `<p class="rarity-why">${esc(r.reason)}</p>` : '');
   }
 
+  // 오늘 생일 카드: 모든 숫자는 실제 공전 주기로 계산한 값이다
+  function bdayCard(w) {
+    const b = w.bday, num = (x) => x.toLocaleString('ko-KR');
+    const P = b.period >= 1000 ? num(Math.round(b.period)) : b.period.toFixed(b.period >= 10 ? 1 : 2);
+    const dt = (s) => { const [y, m, d] = s.split('-'); return `${y}년 ${+m}월 ${+d}일`; };
+    return `<div class="p-bday reveal" style="animation-delay:.3s">
+      <div class="k">오늘은 이 행성에서</div>
+      <div class="n">${num(b.n)}번째 생일</div>
+      <p>${esc(w.planet)}${NV.josa(w.planet, '은/는').slice(w.planet.length)} <b>${P}일</b>마다 별을 한 바퀴 돕니다.
+        태어난 지 <b>${num(b.days)}일</b>째인 오늘, 이 행성의 달력으로 <b>${num(b.n)}번째 해</b>가 끝납니다.
+        오늘 생일을 맞는 실제 외계행성 ${num(b.count)}개 중 1년이 가장 긴 행성이에요.<br>
+        이 행성에서의 다음 생일은 <b>${dt(b.next)}</b>입니다.</p>
+      <small>${dt(b.date)} 기준 · 태어난 시각은 모르므로 하루 단위로 계산했어요</small>
+    </div>`;
+  }
+
   function renderPanel(w) {
     let i = 0;
     const d = () => `style="animation-delay:${(i++ * 0.07 + 0.15).toFixed(2)}s"`;
@@ -332,6 +379,7 @@
         <h2 class="p-name reveal" ${d()}>${esc(w.planet)}</h2>
         <p class="p-sub reveal" ${d()}><b>${esc(w.owner)}</b>의 행성 · ${esc(w.biome.name)}</p>
         <p class="p-cat reveal" ${d()}>${esc(w.catalog)} · ${esc(w.constellation)}자리 · RA ${esc(w.coords.ra)} · DEC ${esc(w.coords.dec)}</p>
+        ${w.bday ? bdayCard(w) : ''}
         <div class="p-actions reveal" ${d()}>
           <button class="act" data-act="music" aria-pressed="${music.playing}">${ICON.music}<span>${music.playing ? '노래 멈춤' : '행성의 노래'}</span></button>
           <button class="act" data-act="card">${ICON.card}<span>엽서 저장</span></button>
@@ -353,7 +401,7 @@
         </div>
         <blockquote class="p-proverb reveal" ${d()}><p>“${esc(w.proverb)}”</p><cite>— ${esc(w.planet)}에 전해지는 오래된 속담</cite></blockquote>
         <button class="ghost wide reveal" data-act="new" ${d()}>↺ 다른 이름의 행성 찾기</button>
-        <p class="p-foot">같은 이름을 입력하는 사람은 누구나 이 행성을 발견합니다.<br>행성의 모습과 고리, 위성은 실제 수치를 바탕으로 그린 상상도입니다.<br>데이터: ${esc(NV.EXO.source)} · ${esc(NV.EXO.version)} 기준 ${NV.EXO.rows.length.toLocaleString('ko-KR')}개</p>
+        <p class="p-foot">${w.bday ? '같은 날 태어난 사람은 오늘 모두 이 행성에서 생일을 맞습니다.' : '같은 이름을 입력하는 사람은 누구나 이 행성을 발견합니다.'}<br>행성의 모습과 고리, 위성은 실제 수치를 바탕으로 그린 상상도입니다.<br>데이터: ${esc(NV.EXO.source)} · ${esc(NV.EXO.version)} 기준 ${NV.EXO.rows.length.toLocaleString('ko-KR')}개</p>
       </div>`;
     el.panel.hidden = false;
     el.panel.scrollTop = 0;
@@ -529,7 +577,9 @@
     if (!w) return;
     const text = S.mode === 'duo'
       ? `${w.owner} × ${S.partner.owner} 행성 궁합 ${S.harmony.score}% — ${S.harmony.tier.name}`
-      : `내 이름과 연결된 실제 외계행성 「${w.planet}」 — ${w.exo.dist != null ? Math.round(w.exo.dist).toLocaleString('ko-KR') + '광년 거리, ' : ''}${w.rarity.name} 등급 (상위 ${w.rarity.topPct}%)`;
+      : w.bday
+        ? `오늘은 실제 외계행성 「${w.planet}」에서 내 ${w.bday.n.toLocaleString('ko-KR')}번째 생일이에요 (이 행성의 1년 = ${Math.round(w.bday.period).toLocaleString('ko-KR')}일)`
+        : `내 이름과 연결된 실제 외계행성 「${w.planet}」 — ${w.exo.dist != null ? Math.round(w.exo.dist).toLocaleString('ko-KR') + '광년 거리, ' : ''}${w.rarity.name} 등급 (상위 ${w.rarity.topPct}%)`;
     if (navigator.share && coarse) {
       try { await navigator.share({ title: 'NAMEVERSE', text, url }); return; } catch (e) { if (e.name === 'AbortError') return; }
     }
@@ -697,6 +747,7 @@
       c1: NV.toCss(v.type === 2 ? v.emit : v.type === 1 ? v.shallow : v.land),
       c2: NV.toCss(v.type === 2 ? v.deep : v.deep),
       glow: NV.toCss(v.atmo), ts: Date.now(),
+      bd: w.bday ? { p: w.exoIndex, k: w.bday.n, d: w.bday.date } : null,
     });
     try { localStorage.setItem(ATLAS_KEY, JSON.stringify(list.slice(0, 60))); } catch (e) { /* 저장 공간 없음: 무시 */ }
     el.atlasCount.textContent = Math.min(list.length, 60);
@@ -704,7 +755,7 @@
   function renderAtlas() {
     const list = loadAtlas();
     el.atlasList.innerHTML = list.length
-      ? list.map((x) => `<li><button data-owner="${esc(x.owner)}">
+      ? list.map((x) => `<li><button data-owner="${esc(x.owner)}"${x.bd ? ` data-bd="${esc(JSON.stringify(x.bd))}"` : ''}>
           <span class="dot" style="background:radial-gradient(circle at 34% 32%, ${x.c1}, ${x.c2} 72%);box-shadow:0 0 14px ${x.glow}66, inset -6px -6px 12px rgba(0,0,0,.55)"></span>
           <span><span class="t">${esc(x.planet)}</span><br><span class="s">${esc(x.owner)} · ${esc(x.biome)} · ${esc(x.rarity)}</span></span>
         </button></li>`).join('')
@@ -715,7 +766,9 @@
     const b = e.target.closest('button[data-owner]');
     if (!b) return;
     el.atlas.hidden = true;
-    go(b.dataset.owner);
+    let bd = null;
+    try { bd = b.dataset.bd ? JSON.parse(b.dataset.bd) : null; } catch (err) { /* 옛 기록 */ }
+    go(b.dataset.owner, null, bd);
   });
   $('#atlas-clear').addEventListener('click', () => {
     localStorage.removeItem(ATLAS_KEY);

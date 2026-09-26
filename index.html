@@ -34,13 +34,15 @@
     <p class="eyebrow">이름의 우주 관측소 · Observatory of Names</p>
     <h1>당신의 이름은<br /><em>이미 하나의 행성</em>입니다</h1>
     <p class="lead">
-      이름을 입력하면 NASA가 확인한 실제 외계행성 6,300여 개 중 하나를 찾아 줍니다.<br />
-      같은 이름은 <b>전 세계 어디서나 같은 행성</b>이 됩니다.
+      NASA가 확인한 실제 외계행성 6,300여 개 중에서<br />
+      <b>오늘이 당신의 생일인 행성</b>을 찾아 줍니다.
     </p>
     <form id="form" class="namebox" autocomplete="off">
       <input id="name" maxlength="24" placeholder="이름을 입력하세요" aria-label="이름" spellcheck="false" />
       <button type="submit" class="cta">행성 찾기 <span aria-hidden="true">→</span></button>
     </form>
+    <label class="bday" for="bday">생일 <input id="bday" type="date" form="form" min="1900-01-01" aria-describedby="bday-note" /></label>
+    <p class="bday-note" id="bday-note">생일은 계산에만 쓰고 저장하거나 링크에 담지 않아요. 비워 두면 이름으로 행성을 뽑습니다.</p>
     <p class="hint" id="live-hint">한 글자씩 입력할 때마다 지평선 너머의 행성이 바뀝니다</p>
     <div class="examples" id="examples"></div>
   </section>
