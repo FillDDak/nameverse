@@ -118,7 +118,7 @@
           if (k > 0) {
             c.yaw += AUTO_YAW * S.autoDir * k * dt;
             const target = Math.max(-PITCH_BAND, Math.min(PITCH_BAND, c.pitch));
-            c.pitch += (target - c.pitch) * (1 - Math.exp(-dt * 0.7 * k));
+            c.pitch += (target - c.pitch) * (1 - Math.exp(-dt * 0.3 * k));
           }
         }
       }
