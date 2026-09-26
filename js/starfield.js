@@ -16,6 +16,7 @@
   };
   const invCdf = (u) => SKY_NEAR * Math.pow(3, Math.log(1 + u * GROW_TOTAL) / Math.log(SKY_GROW));
   const nearness = (d) => 1 - cdf(d);
+  const SKY_RESPAWN = 36; // 이보다 행성에 가까워진 별은 다른 곳에서 다시 나타난다
   const SKY_DRIFT = 0.05; // 화면 왼쪽으로 흐르는 속도 (공간 단위/초): 가장 가까운 별도 초당 1픽셀 안팎
 
   const vadd = (a, b) => [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
@@ -96,7 +97,7 @@
         if (x < 0 || x > W || y < 0 || y > H) continue;
         // 화면 위치 그대로, 가까웠던 별(작은 z)일수록 카메라 가까이에 둔다
         const ux = (x - cx) / H - sx, uy = (cy - y) / H - sy, l = Math.hypot(ux, uy, F);
-        const t = invCdf(s.z); // 날아올 때 가까웠던 별(작은 z)은 가까이, 멀던 별은 아주 멀리
+        const t = invCdf(s.z) + C; // 날아올 때 가까웠던 별(작은 z)은 가까이, 멀던 별은 아주 멀리. 행성에서 40 이상 떨어지게
         const pv = [ux / l * t, uy / l * t, C - F / l * t];
         sky.push(this._skyStar(this._toWorld(V, pv), s));
       }
@@ -120,7 +121,7 @@
       const R = invCdf(Math.random());
       return [rr * Math.cos(th) * R, u * R, rr * Math.sin(th) * R];
     }
-    _skyStar(p, s) { return { p, s: s.s, col: s.col, tw: s.tw, tws: s.tws }; }
+    _skyStar(p, s) { return { p, s: s.s, col: s.col, tw: s.tw, tws: s.tws, fade: 1 }; }
     // 월드 좌표 → 화면 픽셀 (셰이더와 같은 식). 카메라 뒤나 화면 밖이면 null
     _project(p, view) {
       const V = view.V, F = view.focal, [sx, sy] = view.shift, H = this.h;
@@ -205,14 +206,21 @@
       for (const st of this.sky) {
         const p = st.p;
         p[0] += mx; p[1] += my; p[2] += mz;
-        // 흘러가다 행성에 너무 가까워진 별은 다른 곳에서 다시 (분포 유지)
-        if (p[0] * p[0] + p[1] * p[1] + p[2] * p[2] < SKY_NEAR * SKY_NEAR * 0.5) st.p = this._randPoint();
+        // 흘러가다 행성에 너무 가까워진 별은 서서히 사라지고, 다른 곳에서 서서히 나타난다 (분포 유지).
+        // 경계(36)를 카메라가 가장 멀리 물러났을 때(약 25)보다 넉넉히 바깥에 두어 별이 카메라를 스치지 않는다
+        const r2 = p[0] * p[0] + p[1] * p[1] + p[2] * p[2];
+        let edge = 1;
+        if (r2 < SKY_NEAR * SKY_NEAR) {
+          if (r2 < SKY_RESPAWN * SKY_RESPAWN) { st.p = this._randPoint(); st.fade = 0; continue; }
+          edge = (Math.sqrt(r2) - SKY_RESPAWN) / (SKY_NEAR - SKY_RESPAWN);
+        }
+        if (st.fade < 1) st.fade = Math.min(1, st.fade + dt * 0.4);
         st.tw += st.tws * dt;
         const q = this._project(p, view);
         if (!q) continue;
         const near = nearness(q[2]);
         // 우주에는 대기가 없어 별이 거의 반짝이지 않는다
-        const a = Math.min(1, (0.35 + near * 0.9) * (0.95 + 0.05 * Math.sin(st.tw)));
+        const a = Math.min(1, (0.35 + near * 0.9) * (0.95 + 0.05 * Math.sin(st.tw))) * edge * st.fade;
         const size = Math.min(3.4 * this.dpr, st.s * (0.5 + near * 1.6) * this.dpr);
         ctx.fillStyle = `rgba(${st.col},${a})`;
         if (size < 1.8 * this.dpr) ctx.fillRect(q[0] - size / 2, q[1] - size / 2, size, size);

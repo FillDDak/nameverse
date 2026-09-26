@@ -483,10 +483,10 @@ void main(){
   // 확대/축소는 카메라가 실제로 다가가고 물러나는 것(달리 줌). 별 공간에서는 그 이동을 STAR_DOLLY배로 키워
   // 가까운 별은 크게, 먼 별은 조금, 은하수와 모항성(무한히 멂)은 전혀 움직이지 않는 연속된 깊이감을 만든다
   const STAR_DOLLY = 7;
-  // 단, 물러날 때는 별 공간의 카메라가 가장 가까운 별들(행성에서 40 이상) 안쪽에 머물도록 점점 덜 물러난다.
-  // 별들은 행성을 중심으로 흩어져 있어서, 그 바깥까지 나가면 별 무리를 밖에서 보게 되어 행성 주변에 몰려 보인다
-  const STAR_OUT = 26;
-  const starMove = (d) => (d > 0 ? STAR_OUT * (1 - Math.exp(-d / STAR_OUT)) : d);
+  // 단, 물러날 때는 별 공간의 카메라가 가장 가까운 별들(행성에서 36~40 이상) 안쪽에 머물도록 한다.
+  // 별들은 행성을 중심으로 흩어져 있어서, 그 바깥까지 나가면 별 무리를 밖에서 보게 되어 행성 주변에 몰려 보인다.
+  // 축소 배율의 로그에 대해 처음엔 빠르게, 끝으로 갈수록 천천히(멈추지는 않게) 물러나 최대 축소(0.06)에서 약 25에 이른다
+  const starCam = (zoom, camDist) => (zoom >= 1 ? CAM + (camDist - CAM) * STAR_DOLLY : CAM + 8 * Math.log(1 + 3.75 * Math.log(1 / zoom)));
   const BASE_PITCH = 0.3;
 
   /* ───────────── 렌더러 ───────────── */
@@ -672,7 +672,7 @@ void main(){
       if (!vp || !vp.sky) return null;
       const st = this._state(this.slots[0], time, vp);
       const v = this.slots[0].world.visual;
-      return { V: st.V, focal: st.skyFocal, shift: vp.shift, cam: CAM + starMove((st.camDist - CAM) * STAR_DOLLY), lightCol: v.lightCol || [1, 0.96, 0.9] };
+      return { V: st.V, focal: st.skyFocal, shift: vp.shift, cam: starCam(this.zoom, st.camDist), lightCol: v.lightCol || [1, 0.96, 0.9] };
     }
 
     // 화면 좌표(캔버스 픽셀, 위쪽 원점) → 행성 표면의 로컬 좌표
