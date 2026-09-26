@@ -110,16 +110,16 @@
         d.vx *= damp; d.vy *= damp;
         d.y += (0 - d.y) * Math.min(1, dt * 0.35);
         d.y = Math.max(-1.1, Math.min(1.1, d.y));
-        // 한동안 손대지 않으면 시점이 천천히 행성 주위를 돈다(몇 초에 걸쳐 부드럽게 빨라짐).
-        // 너무 높거나 낮은 시점은 알맞은 높이로 천천히 돌아온다
-        if (!S.viewReset && viewing() && !reducedMotion) {
-          const x = Math.min(1, Math.max(0, ((now - S.idleAt) / 1000 - AUTO_DELAY) / AUTO_RAMP));
-          const k = x * x * (3 - 2 * x);
-          if (k > 0) {
-            c.yaw += AUTO_YAW * S.autoDir * k * dt;
-            const target = Math.max(-PITCH_BAND, Math.min(PITCH_BAND, c.pitch));
-            c.pitch += (target - c.pitch) * (1 - Math.exp(-dt * 0.3 * k));
-          }
+      }
+      // 한동안 돌리지 않으면 시점이 천천히 행성 주위를 돈다(몇 초에 걸쳐 부드럽게 빨라짐).
+      // 너무 높거나 낮은 시점은 알맞은 높이로 천천히 돌아온다. 확대·축소(휠, 핀치)는 회전을 끊지 않는다
+      if (!S.viewReset && viewing() && !reducedMotion && !(pointer.down && pointers.size < 2)) {
+        const x = Math.min(1, Math.max(0, ((now - S.idleAt) / 1000 - AUTO_DELAY) / AUTO_RAMP));
+        const k = x * x * (3 - 2 * x);
+        if (k > 0) {
+          c.yaw += AUTO_YAW * S.autoDir * k * dt;
+          const target = Math.max(-PITCH_BAND, Math.min(PITCH_BAND, c.pitch));
+          c.pitch += (target - c.pitch) * (1 - Math.exp(-dt * 0.3 * k));
         }
       }
       renderer.pulse = music.getLevel();
@@ -579,12 +579,11 @@
   el.canvas.addEventListener('contextmenu', (e) => e.preventDefault());
   el.canvas.addEventListener('pointerdown', (e) => {
     if (!renderer || S.mode === 'scan') return;
-    poke();
     pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
     el.canvas.setPointerCapture(e.pointerId);
     el.canvas.classList.add('grabbing');
     if (pointers.size === 1) {
-      pointer.down = true; pointer.moved = 0;
+      pointer.down = true; pointer.moved = 0; pointer.rot = false;
       const orbit = viewing() && (e.button === 2 || e.shiftKey);
       beginGesture(orbit ? 'orbit' : 'spin');
     } else if (viewing()) {
@@ -594,10 +593,12 @@
   });
   el.canvas.addEventListener('pointermove', (e) => {
     if (!pointers.has(e.pointerId)) return;
-    poke();
     pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
     const [cx, cy] = centroid();
     const dx = cx - pointer.x, dy = cy - pointer.y;
+    // 한 손가락(마우스) 드래그, 또는 두 손가락이 함께 움직일 때만 돌리는 조작으로 본다.
+    // 두 손가락 사이만 벌어지고 좁혀지는 핀치(확대·축소)는 자동 회전을 끊지 않는다
+    if (pointers.size < 2 || Math.abs(dx) + Math.abs(dy) > 2) { poke(); pointer.rot = true; }
     const now = performance.now(), dt = Math.max(0.001, (now - pointer.t) / 1000);
     pointer.x = cx; pointer.y = cy; pointer.t = now;
     pointer.moved += Math.abs(dx) + Math.abs(dy);
@@ -625,7 +626,7 @@
   const endPointer = (e) => {
     if (!pointers.has(e.pointerId)) return;
     pointers.delete(e.pointerId);
-    poke();
+    if (pointer.rot || pointer.moved < 6) poke(); // 돌렸거나 탭(지표 탐사)했을 때
     if (pointers.size) { beginGesture(pointer.mode); return; } // 손가락 하나를 먼저 떼도 튀지 않게
     pointer.down = false;
     el.canvas.classList.remove('grabbing');
@@ -640,7 +641,6 @@
   el.canvas.addEventListener('wheel', (e) => {
     if (!renderer || !viewing()) return;
     e.preventDefault();
-    poke();
     renderer.zoom = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, renderer.zoom * Math.exp(-e.deltaY * 0.0012)));
     hideProbe();
   }, { passive: false });
