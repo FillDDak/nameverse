@@ -345,7 +345,7 @@ void main(){
       }
     }
   }
-  // 모항성과 하늘은 행성과 같은 확대 배율의 초점거리로 본다 (도착 연출의 크기 변화만 제외)
+  // 모항성과 하늘은 무한히 멀다: 카메라가 다가가도(확대) 크기와 위치가 변하지 않는다
   vec3 rdS = normalize(vec3(uv, -uSkyFocal));
   float apS = 1.0/(uRes.y*uSkyFocal);
   vec3 tint = clamp((uLightCol - 0.45)/0.55, 0.0, 1.0); // 별 본래 색 (uLightCol은 흰색 쪽에 섞은 조명용 값)
@@ -414,6 +414,9 @@ void main(){
 
   const LIGHT = norm([-0.8, 0.38, 0.62]);
   const CAM = 6.0;
+  // 확대/축소는 카메라가 실제로 다가가고 물러나는 것(달리 줌). 별 공간에서는 그 이동을 STAR_DOLLY배로 키워
+  // 가까운 별은 크게, 먼 별은 조금, 은하수와 모항성(무한히 멂)은 전혀 움직이지 않는 연속된 깊이감을 만든다
+  const STAR_DOLLY = 7;
   const BASE_PITCH = 0.3;
 
   /* ───────────── 렌더러 ───────────── */
@@ -490,14 +493,15 @@ void main(){
       const age = time - slot.appearAt;
       const k = Math.min(1, Math.max(0, age / 1.6));
       const ease = 1 - Math.pow(1 - k, 4);
-      const focal = (vp.fit * CAM / v.extent) * this.zoom * (0.02 + 0.98 * ease);
+      const camDist = CAM / this.zoom;
+      const focal = (vp.fit * CAM / v.extent) * (0.02 + 0.98 * ease);
       const moons = v.moons.map((m) => {
         const a = m.phase + time * m.speed;
         return M.vec(M.mul(V, M.mul(M.rx(pitch), M.rz(m.incl))), [Math.cos(a) * m.dist, 0, Math.sin(a) * m.dist]).concat(m.r);
       });
       return { R, RC, focal, alpha: Math.min(1, Math.max(0, (time - slot.fadeAt) / 0.6)), ringN: M.vec(tiltM, [0, 1, 0]), moons, light: M.vec(V, LIGHT), V,
-        // 하늘(별·은하수·모항성)은 확대/축소만 따라간다(망원 렌즈처럼 모두 같은 배율). 도착할 때 행성이 커지는 연출은 따라가지 않는다
-        skyFocal: (vp.fit * CAM / v.extent) * this.zoom };
+        // 하늘은 무한히 멀어 카메라가 움직여도 그대로다. 도착할 때 행성이 커지는 연출도 따라가지 않는다
+        skyFocal: vp.fit * CAM / v.extent, camDist };
     }
 
     render(time) {
@@ -521,7 +525,7 @@ void main(){
       const f3 = (n, a) => u[n] && gl.uniform3fv(u[n], a);
       const f4 = (n, a) => u[n] && gl.uniform4fv(u[n], a);
       f2('uRes', [vp.w, vp.h]); f2('uOffset', [vp.x, vp.y]); f2('uShift', vp.shift);
-      f1('uTime', time); f1('uFocal', st.focal); f1('uCamDist', CAM); f1('uAlpha', st.alpha * (vp.alpha == null ? 1 : vp.alpha));
+      f1('uTime', time); f1('uFocal', st.focal); f1('uCamDist', st.camDist); f1('uAlpha', st.alpha * (vp.alpha == null ? 1 : vp.alpha));
       f1('uPulse', this.pulse);
       // 행 우선 R을 그대로 올리면 GLSL에서는 Rᵀ(월드→로컬)가 된다
       gl.uniformMatrix3fv(u.uRot, false, new Float32Array(st.R));
@@ -554,7 +558,7 @@ void main(){
       const vp = this.layout(this.canvas.width, this.canvas.height, this.slots.length)[0];
       if (!vp || !vp.sky) return null;
       const st = this._state(this.slots[0], time, vp);
-      return { V: st.V, focal: st.skyFocal, shift: vp.shift, cam: CAM };
+      return { V: st.V, focal: st.skyFocal, shift: vp.shift, cam: CAM + (st.camDist - CAM) * STAR_DOLLY };
     }
 
     // 화면 좌표(캔버스 픽셀, 위쪽 원점) → 행성 표면의 로컬 좌표
@@ -570,9 +574,9 @@ void main(){
         const uvx = (cx - vp.x - 0.5 * vp.w) / vp.h - vp.shift[0];
         const uvy = (fy - vp.y - 0.5 * vp.h) / vp.h - vp.shift[1];
         const rd = norm([uvx, uvy, -st.focal]);
-        const ro = [0, 0, CAM];
+        const ro = [0, 0, st.camDist];
         const b = ro[2] * rd[2];
-        const hh = b * b - CAM * CAM + 1;
+        const hh = b * b - st.camDist * st.camDist + 1;
         if (hh < 0) continue;
         const t = -b - Math.sqrt(hh);
         const n = [ro[0] + rd[0] * t, ro[1] + rd[1] * t, ro[2] + rd[2] * t];
