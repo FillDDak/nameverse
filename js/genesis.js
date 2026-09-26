@@ -434,7 +434,7 @@
     if (/Pulsar/.test(p.method)) out.push('모항성은 초신성 폭발 뒤에 남은 펄서라서, 하늘에 보통의 해가 뜨지 않습니다.');
     const pt = periodText(p.per);
     if (pt) out.push(`이곳의 1년은 ${pt}입니다.`);
-    if (p.a != null && p.a < 0.1 && p.rade < 6) out.push('별에 매우 가까워서 조석 고정되었을 가능성이 높습니다. 그렇다면 한쪽은 늘 낮, 반대쪽은 늘 밤입니다.');
+    if (p.a != null && p.a < 0.1 && p.rade < 6) out.push('별에 매우 가까워서 조석 고정되었을 가능성이 높습니다. 그렇다면 한쪽은 늘 낮, 반대쪽은 늘 밤입니다. 그림 속 행성도 자전하지 않고 늘 같은 면이 별을 향하도록 그렸습니다.');
     if (p.ecc != null && p.ecc > 0.4) out.push(`궤도가 많이 찌그러져 있어서(이심률 ${p.ecc}), 별에 가까워지는 계절과 멀어지는 계절의 차이가 큽니다.`);
     if (p.snum > 1) out.push(`이 항성계에는 별이 ${p.snum}개 있습니다.`);
     if (p.pnum > 1) out.push(`같은 항성계에서 행성이 ${p.pnum - 1}개 더 발견되었습니다.`);
@@ -515,6 +515,18 @@
     v.storm = [Math.cos(sa) * sc, sy, Math.sin(sa) * sc];
     v.tilt = rv.range(-0.42, 0.42);
     v.spin = (v.type === 1 ? rv.range(0.14, 0.24) : rv.range(0.07, 0.15)) * (rv.chance(0.12) ? -1 : 1);
+    // 조석 고정: 별에 매우 가까운(0.1 AU 미만) 작은 행성은 자전하지 않고 늘 같은 면이 별을 향한다(설명 문구와 같은 조건).
+    // 열이 퍼지지 않는다고 보면 별을 마주한 곳은 평형 온도의 √2배, 거기서 θ만큼 떨어진 곳은 그 cos(θ)^¼배다.
+    // 물이 어는 273K보다 차가운 곳은 얼음(눈알 행성), 마주한 곳이 900K를 넘으면 암석이 달아오른다
+    v.locked = p.a != null && p.a < 0.1 && p.rade < 6;
+    if (v.locked) {
+      v.spin = 0; v.tilt *= 0.1; // 조석 고정된 행성은 자전축도 거의 기울지 않는다
+      const Tsub = p.eqt != null ? p.eqt * Math.SQRT2 : null;
+      const wet = (v.type === 0 || v.type === 3) && (p.eqt == null || p.eqt < 450); // 뜨거운 사막은 얼 물이 없다
+      // 평형 온도에는 온실 효과가 빠져 있다: 지구 비율(실제 288K ÷ 평형 255K ≈ 1.13)을 곱해 '물이 있을 수 있는 행성' 분류와 맞춘다
+      v.lockIce = wet ? (Tsub != null ? Math.min(1.5, Math.pow(273 / (Tsub * 1.13), 4)) : 0.5) : -2;
+      v.lockGlow = v.type === 0 && Tsub != null ? Math.min(1, Math.max(0, (Tsub - 900) / 600)) : 0;
+    }
     v.cloudSpeed = rv.range(0.008, 0.02);
 
     // 고리와 위성 (외계행성의 고리·위성은 아직 관측된 적이 없어서 상상으로 그린다)

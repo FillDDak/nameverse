@@ -110,6 +110,8 @@
         const damp = Math.pow(0.04, dt);
         d.vx *= damp; d.vy *= damp;
         d.y += (0 - d.y) * Math.min(1, dt * 0.35);
+        // 조석 고정된 행성은 손으로 돌려도 천천히 별을 향하던 원래 면으로 돌아온다
+        if (renderer.slots[0] && renderer.slots[0].world.visual.locked) d.x += Math.atan2(-Math.sin(d.x), Math.cos(d.x)) * Math.min(1, dt * 0.35);
         d.y = Math.max(-1.1, Math.min(1.1, d.y));
       }
       // 한동안 돌리지 않으면 시점이 천천히 행성 주위를 돈다(몇 초에 걸쳐 부드럽게 빨라짐).

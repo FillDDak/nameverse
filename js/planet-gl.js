@@ -20,6 +20,7 @@ uniform float uBands, uTurb, uStormSize; uniform vec3 uStorm;
 uniform float uRing, uRingSeed; uniform vec3 uRingN; uniform vec2 uRingR; uniform vec3 uRingCol;
 uniform vec4 uMoon0, uMoon1, uMoon2; uniform vec3 uMoonCol0, uMoonCol1, uMoonCol2;
 uniform float uStarR, uSkyFocal, uSky; uniform mat3 uView;
+uniform vec3 uLock; // 조석 고정: x 여부, y 얼음 경계(별을 마주한 정도 cos θ가 이보다 작으면 얼음), z 낮 쪽 한가운데의 달아오름
 uniform vec4 uCmH, uCmI, uCmD; uniform vec3 uCmCol; // 혜성: 머리(xy, 크기, 밝기), 이온 꼬리 끝(xy, 범위, 씨앗), 먼지 꼬리 베지어(조절점, 끝)
 uniform vec4 uMetA0, uMetB0, uMetA1, uMetB1; // 유성: A.xyz 시작, A.w 머리 위치(0~1), B.xyz 끝, B.w 밝기
 
@@ -156,12 +157,15 @@ vec3 shadePlanet(vec3 n, vec3 rd, vec3 p, float px){
       // 용암·수정: 식은 지각 사이로 빛나는 균열과 호수
       float rr = 1.0 - abs(snoise(qw*2.3 + 3.0));
       float crack = smoothstep(0.88, 0.985, rr)*aa(2.3*6.0, fp)*(1.0 - smoothstep(0.55, 0.75, hh));
-      float lakes = smoothstep(uSea, uSea - 0.05, hh);
+      // 조석 고정된 용암 행성: 별을 마주한 낮 쪽은 넓은 마그마 바다, 밤 쪽은 식어 굳은 지각
+      float seaL = uSea + (uLock.x > 0.5 ? 0.3*max(ndl, 0.0) : 0.0);
+      float lakes = smoothstep(seaL, seaL - 0.05, hh);
       base = mix(uDeep, uShallow, smoothstep(0.3, 0.7, hh));
       base = mix(base, uLand, smoothstep(0.58, 0.75, hh)*0.7);
       base *= 0.8 + 0.4*(0.5 + 0.5*snoise(qw*7.0)*aa(7.0, fp));
       // 수정 행성(반사가 강한 쪽)은 호수 대신 결정 틈만 빛난다
       float glow = max(crack*1.1, lakes*(1.0 - 0.7*step(0.5, uSpec)));
+      if(uLock.x > 0.5) glow *= smoothstep(-0.45, 0.1, ndl);
       float flick = 0.85 + 0.15*sin(uTime*1.7 + hh*30.0);
       vec3 hot = mix(uEmit, vec3(1.0, 0.93, 0.65), 0.55);
       emit = mix(uEmit, hot, glow*glow)*glow*flick*(1.0 + uPulse*0.6)*1.15;
@@ -187,6 +191,14 @@ vec3 shadePlanet(vec3 n, vec3 rd, vec3 p, float px){
       }
       float lat = abs(lp.y) + (hh - 0.5)*0.35 + 0.03*snoise(q*5.0);
       float ice = smoothstep(uIce - 0.015, uIce + 0.035, lat);
+      if(uLock.x > 0.5){
+        // 조석 고정: 극지방 대신, 별을 마주한 한가운데에서 멀어져 물이 어는 온도보다 차가워진 곳부터 얼어붙는다.
+        // 높은 땅이 먼저 얼고, 경계는 조금 들쭉날쭉하게
+        float s = ndl - (hh - 0.5)*0.25 + 0.05*snoise(q*4.0);
+        ice = smoothstep(uLock.y + 0.03, uLock.y - 0.05, s);
+        // 별을 마주한 곳이 900K를 넘으면 암석이 붉게 달아오른다
+        emit += vec3(1.0, 0.36, 0.12)*uLock.z*pow(max(ndl, 0.0), 1.5)*(0.7 + 0.3*(1.0 - hh))*0.5;
+      }
       base = mix(base, vec3(0.9, 0.94, 1.0), ice);
       spec *= 1.0 - ice; land *= 1.0 - ice; water *= 1.0 - ice;
       bump = mix(bump, 0.12, ice);
@@ -224,6 +236,8 @@ vec3 shadePlanet(vec3 n, vec3 rd, vec3 p, float px){
     float cv = 0.5 + HK*(cb + cd*0.22);
     float th = mix(0.72, 0.5, uClouds);
     cloud = smoothstep(th, th + 0.2, cv)*0.92;
+    // 조석 고정된 행성에서는 별을 마주한 곳에 두꺼운 구름이 뭉친다(강한 상승 기류)
+    if(uLock.x > 0.5) cloud = max(cloud, smoothstep(0.55, 0.95, ndl + 0.3*(cv - 0.5))*0.75*min(1.0, uClouds*2.0));
   }
 
   float sh = ringShadow(p)*moonShadow(p, uMoon0)*moonShadow(p, uMoon1)*moonShadow(p, uMoon2);
@@ -644,6 +658,7 @@ void main(){
         f3('u' + k, v[k.charAt(0).toLowerCase() + k.slice(1)] || [0, 0, 0]);
       });
       f1('uSea', v.sea); f1('uClouds', v.clouds); f1('uIce', v.ice); f1('uCity', v.city);
+      f3('uLock', [v.locked ? 1 : 0, v.lockIce != null ? v.lockIce : -2, v.lockGlow || 0]);
       f1('uWarp', v.warp); f1('uScale', v.scale); f1('uAtmoStr', v.atmoStr); f1('uSpec', v.spec);
       f1('uBands', v.bands); f1('uTurb', v.turb); f1('uStormSize', v.stormSize || 0.1); f3('uStorm', v.storm);
       f1('uRing', v.ring ? 1 : 0);
