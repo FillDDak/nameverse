@@ -244,7 +244,9 @@
       // 행성에 도착하면(워프가 잦아들면) 지나온 별들을 그 자리 그대로 하늘에 고정한다
       if (this.view && !this.sky && this.warp < 0.08) { this._enterSky(this.view); this.comet = this.cometU = null; this.cometWait = 12 + Math.random() * 10; }
       if (!this.view && this.sky) { this.sky = null; this.comet = this.cometU = null; } // 다시 떠나면 멈춰 있던 자리에서 이어서 흐른다
-      this.skyFade = this.sky ? Math.min(1, (this.skyFade || 0) + dt * 1.5) : 0;
+      // 성운은 행성에 도착하기 시작하는 순간(워프가 잦아드는 동안)부터 은하수에게 자리를 내준다.
+      // 워프가 끝난 뒤에 흐려지면, 워프가 잦아들며 성운이 먼저 짙어졌다가 사라지는 안개처럼 보인다
+      this.skyFade = this.view ? Math.min(1, (this.skyFade || 0) + dt * 1.5) : Math.max(0, (this.skyFade || 0) - dt * 1.5);
 
       ctx.fillStyle = '#03030a';
       ctx.fillRect(0, 0, W, H);
