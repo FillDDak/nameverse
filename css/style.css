@@ -12,7 +12,8 @@
 
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); font-family: var(--font); overflow: hidden; }
-body { -webkit-font-smoothing: antialiased; -webkit-tap-highlight-color: transparent; }
+/* 줄바꿈은 글자가 아니라 단어(띄어쓰기) 단위로. 한 줄에 다 못 들어가는 긴 단어만 예외로 끊는다 */
+body { -webkit-font-smoothing: antialiased; -webkit-tap-highlight-color: transparent; word-break: keep-all; overflow-wrap: break-word; }
 button, input { font: inherit; color: inherit; }
 button { cursor: pointer; }
 [hidden] { display: none !important; }
@@ -200,10 +201,10 @@ button { cursor: pointer; }
 .rarity-why { margin: 8px 0 0; font-size: 12px; color: var(--dim); }
 .p-lore section { margin: 0 0 16px; }
 .p-lore h4 { margin: 0 0 5px; font-size: 11px; letter-spacing: 0.2em; color: rgba(var(--accent-rgb), 0.95); font-weight: 700; }
-.p-lore p { margin: 0; font-size: 14.5px; line-height: 1.75; color: rgba(238, 241, 255, 0.86); word-break: keep-all; }
+.p-lore p { margin: 0; font-size: 14.5px; line-height: 1.75; color: rgba(238, 241, 255, 0.86); }
 
 .p-proverb { margin: 22px 0 22px; padding: 18px 18px 16px; border-left: 2px solid var(--accent); background: rgba(255, 255, 255, 0.03); border-radius: 0 12px 12px 0; }
-.p-proverb p { margin: 0 0 8px; font-size: 17px; font-weight: 600; line-height: 1.5; word-break: keep-all; }
+.p-proverb p { margin: 0 0 8px; font-size: 17px; font-weight: 600; line-height: 1.5; }
 .p-proverb cite { font-style: normal; font-size: 12px; color: var(--dim); }
 
 .ghost {
@@ -225,8 +226,8 @@ button { cursor: pointer; }
 .duo-score { font-size: clamp(54px, 8vw, 84px); font-weight: 800; letter-spacing: -0.04em; line-height: 1; margin: 0; }
 .duo-score small { font-size: 0.4em; margin-left: 2px; opacity: 0.7; }
 .duo-tier { font-size: 20px; font-weight: 700; color: var(--accent); margin: 6px 0 4px; }
-.duo-desc { color: var(--dim); font-size: 14.5px; margin: 0 0 10px; word-break: keep-all; }
-.duo-lines { list-style: none; padding: 0; margin: 0 0 16px; font-size: 13.5px; line-height: 1.7; color: rgba(238, 241, 255, 0.8); word-break: keep-all; }
+.duo-desc { color: var(--dim); font-size: 14.5px; margin: 0 0 10px; }
+.duo-lines { list-style: none; padding: 0; margin: 0 0 16px; font-size: 13.5px; line-height: 1.7; color: rgba(238, 241, 255, 0.8); }
 .duo-lines li::before { content: '✦ '; color: var(--accent); }
 .duo-actions { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
 .duo-labels { position: fixed; z-index: 14; top: 76px; left: 0; right: 0; display: grid; grid-template-columns: 1fr 1fr; text-align: center; pointer-events: none; }
