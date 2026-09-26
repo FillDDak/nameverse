@@ -253,8 +253,31 @@
     clearTimeout(previewTimer);
     previewTimer = setTimeout(() => updatePreview(false), 90);
   });
-  el.bday.max = NV.todayStr();
-  el.bday.addEventListener('change', () => updatePreview(false));
+  // 생일 선택: 년(올해부터 거꾸로)·월·일. 일 목록은 고른 달과 윤년에 맞춘다. 셋 다 고르면 YYYY-MM-DD로 합친다
+  (function birthdayPicker() {
+    const ys = $('#bday-y'), ms = $('#bday-m'), ds = $('#bday-d');
+    const opt = (sel, v, t) => sel.add(new Option(t, v));
+    const now = new Date();
+    for (let y = now.getFullYear(); y >= 1900; y--) opt(ys, y, `${y}년`);
+    for (let m = 1; m <= 12; m++) opt(ms, m, `${m}월`);
+    const fillDays = () => {
+      const keep = ds.value, n = new Date(+ys.value || 2000, +ms.value || 1, 0).getDate();
+      ds.length = 1;
+      for (let d = 1; d <= n; d++) opt(ds, d, `${d}일`);
+      ds.value = keep && +keep <= n ? keep : '';
+    };
+    const sync = () => {
+      [ys, ms, ds].forEach((s) => s.classList.toggle('empty', !s.value));
+      const p = (x) => String(x).padStart(2, '0');
+      el.bday.value = ys.value && ms.value && ds.value ? `${ys.value}-${p(ms.value)}-${p(ds.value)}` : '';
+      updatePreview(false);
+    };
+    fillDays();
+    ys.addEventListener('change', () => { fillDays(); sync(); });
+    ms.addEventListener('change', () => { fillDays(); sync(); });
+    ds.addEventListener('change', sync);
+    [ys, ms, ds].forEach((s) => s.classList.add('empty'));
+  })();
 
   el.form.addEventListener('submit', (e) => {
     e.preventDefault();
@@ -271,7 +294,7 @@
       toast('오늘 이전의 생일을 입력해 주세요');
       return;
     }
-    el.name.blur(); el.bday.blur();
+    el.name.blur();
     go(n, null, bd);
   });
 

@@ -94,16 +94,27 @@ button { cursor: pointer; }
 
 /* 생일은 부가 기능: 이름 입력보다 작고 옅게 */
 .bday {
-  display: inline-flex; align-items: center; gap: 10px; margin-top: 14px; padding: 4px 6px 4px 16px; border-radius: 999px;
+  display: inline-flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 6px 10px; margin-top: 14px;
+  padding: 4px 6px 4px 16px; border-radius: 999px;
   background: rgba(10, 12, 28, 0.4); border: 1px solid rgba(255, 255, 255, 0.1); font-size: 13px; color: var(--dim);
   backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); transition: border-color 0.3s;
 }
 .bday:focus-within { border-color: rgba(var(--accent-rgb), 0.7); }
 .bday small { font-size: 11px; color: rgba(255, 255, 255, 0.38); }
-.bday input {
-  background: rgba(255, 255, 255, 0.06); border: 0; outline: 0; border-radius: 999px; padding: 6px 12px;
-  font: inherit; font-size: 14px; color: #fff; color-scheme: dark; min-height: 30px;
+.bday-sel { display: inline-flex; gap: 4px; }
+/* 년·월·일 선택: 휴대폰에서는 기본 휠 선택기로 열린다 */
+.bday select {
+  appearance: none; -webkit-appearance: none; cursor: pointer;
+  background: rgba(255, 255, 255, 0.07) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%23ffffff' stroke-opacity='.55' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") no-repeat right 10px center;
+  border: 1px solid transparent; outline: 0; border-radius: 999px; padding: 6px 26px 6px 12px;
+  font: inherit; font-size: 14px; color: #fff; color-scheme: dark; min-height: 32px; transition: background-color 0.2s, border-color 0.2s;
 }
+.bday select:hover { background-color: rgba(255, 255, 255, 0.12); }
+.bday select:focus-visible { border-color: rgba(var(--accent-rgb), 0.7); }
+.bday select.empty { color: rgba(255, 255, 255, 0.45); }
+.bday select option { background: #0d1022; color: #fff; }
+#bday-y { min-width: 84px; }
+@media (max-width: 560px) { .bday { border-radius: 22px; padding: 8px 10px; } }
 .bday.shake { animation: shake 0.45s var(--ease); }
 .bday-note { font-size: 12px; line-height: 1.6; color: rgba(255, 255, 255, 0.45); margin: 8px 0 0; }
 .bday-note b { color: rgba(255, 255, 255, 0.75); font-weight: 600; }
