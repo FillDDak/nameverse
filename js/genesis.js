@@ -253,6 +253,7 @@
 
   /* ───────────── 실제 외계행성 (NASA Exoplanet Archive) ───────────── */
   const EXO = NV.EXO;
+  const CB = new Set(EXO.cb || []); // 두 별을 함께 도는 행성
   function exoPlanet(i) {
     const r = EXO.rows[i];
     const [method, methodKo] = EXO.methods[r[17]];
@@ -455,7 +456,11 @@
     if (pt) out.push(`이곳의 1년은 ${pt}입니다.`);
     if (p.a != null && p.a < 0.1 && p.rade < 6) out.push('별에 매우 가까워서 조석 고정되었을 가능성이 높습니다. 그렇다면 한쪽은 늘 낮, 반대쪽은 늘 밤입니다. 그림 속 행성도 자전하지 않고 늘 같은 면이 별을 향하도록 그렸습니다.');
     if (p.ecc != null && p.ecc > 0.4) out.push(`궤도가 많이 찌그러져 있어서(이심률 ${p.ecc}), 별에 가까워지는 계절과 멀어지는 계절의 차이가 큽니다.`);
-    if (p.snum > 1) out.push(`이 항성계에는 별이 ${p.snum}개 있습니다.`);
+    if (p.snum > 1) {
+      out.push(CB.has(p.name)
+        ? `이 행성은 두 별을 함께 돌기 때문에 하늘에 해가 두 개 뜹니다. 두 해는 서로를 돌며 가까워졌다 멀어집니다(두 별 사이 거리는 알려져 있지 않아 궤도가 안정한 조건으로 추정했습니다).`
+        : `이 항성계에는 별이 ${p.snum}개 있습니다. 하늘에는 모항성 말고도 유난히 밝은 별${p.snum > 2 ? '들이' : '이'} 보입니다(동반성까지의 거리는 알려져 있지 않아 이런 쌍성계에서 흔한 수백 AU로 가정했습니다).`);
+    }
     if (p.pnum > 1) {
       const sib = siblingRows(p.host, p.name).map((k) => EXO.rows[k][0]);
       out.push(`같은 항성계에서 행성이 ${p.pnum - 1}개 더 발견되었습니다.` + (sib.length && p.a != null
@@ -558,6 +563,25 @@
       const a = r[8] != null ? r[8] : r[7] != null && p.per != null ? p.a * Math.pow(r[7] / p.per, 2 / 3) : null;
       return a != null && r[3] != null ? { name: r[0], a, rade: r[3], P: r[7], h: orbitPhase(r[0]), kind: siblingKind(r[3], r[4], r[10]) } : null;
     }).filter(Boolean).slice(0, 7);
+    // 여러 별로 이루어진 항성계. 데이터에는 별의 개수만 있고 동반성의 거리·밝기는 없어서 전형적인 값으로 추정한다
+    // (행성 모습의 난수를 건드리지 않도록 모항성 이름으로 만든 별도 난수를 쓴다)
+    v.star2 = null; v.companions = [];
+    if (p.snum > 1) {
+      const hr = NV.makeRng('stars/' + p.host);
+      if (CB.has(p.name)) {
+        // 두 별을 함께 도는 행성: 두 별 사이 거리는 궤도가 안정한 한계(행성 궤도의 약 1/3.5, Kepler-16·47과 비슷),
+        // 궤도가 아주 먼(10 AU 이상) 행성은 두 별이 훨씬 가까이 붙어 있다고 본다. 서로 도는 주기는 케플러 제3법칙
+        const k = p.a != null && p.a < 10 ? 1 / 3.5 : 0.05;
+        v.star2 = { sep: k, P: p.per != null ? p.per * Math.pow(k, 1.5) : 30, h: hr.range(0, Math.PI * 2), size: 0.5,
+          col: starColor((p.teff || 5000) * 0.7).map((c) => 0.45 + 0.55 * c) }; // 보통 더 작고 차가운 별
+      } else {
+        // 멀리 떨어진 동반성: 밝은 별처럼 보인다. 방향은 모항성 이름으로 정해 누구에게나 같다
+        for (let i = 0; i < Math.min(2, p.snum - 1); i++) {
+          const u = hr.range(-1, 1), th = hr.range(0, Math.PI * 2), s = Math.sqrt(1 - u * u);
+          v.companions.push({ dir: [s * Math.cos(th), u, s * Math.sin(th)], bright: hr.range(0.9, 1.5), col: starColor(hr.range(3200, 5600)) });
+        }
+      }
+    }
     v.cloudSpeed = rv.range(0.008, 0.02);
 
     // 고리와 위성 (외계행성의 고리·위성은 아직 관측된 적이 없어서 상상으로 그린다)

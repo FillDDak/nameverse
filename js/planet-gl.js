@@ -21,6 +21,8 @@ uniform float uRing, uRingSeed; uniform vec3 uRingN; uniform vec2 uRingR; unifor
 uniform vec4 uMoon0, uMoon1, uMoon2; uniform vec3 uMoonCol0, uMoonCol1, uMoonCol2;
 uniform float uStarR, uSkyFocal, uSky; uniform mat3 uView;
 uniform vec4 uSib[7], uSibL[7]; // 이웃 행성: 방향(시점 좌표) + 보이는 반지름(rad), 이웃 행성에서 모항성 방향 + 색 번호
+uniform vec4 uStar2; uniform vec3 uStar2Col; // 두 번째 해: 방향(시점 좌표) + 보이는 반지름
+uniform vec4 uComp[2], uCompC[2];            // 멀리 떨어진 동반성: 방향 + 밝기, 색
 uniform vec3 uLock; // 조석 고정: x 여부, y 얼음 경계(별을 마주한 정도 cos θ가 이보다 작으면 얼음), z 낮 쪽 한가운데의 달아오름
 uniform vec4 uCmH, uCmI, uCmD; uniform vec3 uCmCol; // 혜성: 머리(xy, 크기, 밝기), 이온 꼬리 끝(xy, 범위, 씨앗), 먼지 꼬리 베지어(조절점, 끝)
 uniform vec4 uMetA0, uMetB0, uMetA1, uMetB1; // 유성: A.xyz 시작, A.w 머리 위치(0~1), B.xyz 끝, B.w 밝기
@@ -322,6 +324,19 @@ vec3 skyColor(vec3 d, float ap){
   return starLayer(d, 120.0, ap, 0.09, 0.5) + starLayer(d, 240.0, ap, 0.07 + band*0.2, 0.3) + starLayer(d, 330.0, ap, band*0.35, 0.25) + mw;
 }
 
+// 멀리 떨어진 동반성: 하늘에서 가장 밝은 별처럼 (또렷한 점 + 옅은 번짐)
+vec3 companions(vec3 d, float ap){
+  vec3 c = vec3(0.0);
+  for(int i = 0; i < 2; i++){
+    vec4 s = uComp[i];
+    if(s.w <= 0.0) break;
+    float x = length(d - s.xyz)/ap;
+    if(x > 80.0) continue;
+    c += uCompC[i].rgb*s.w*(exp(-x*x/1.3)*1.8 + 0.1*pow(1.0 + x/2.5, -2.2));
+  }
+  return c;
+}
+
 // 이웃 행성: 모항성 빛을 받아 초승달~보름달로 보이는 원반. 너무 작으면 밝은 점
 vec3 sibColor(float k){
   return k < 0.5 ? vec3(0.86, 0.76, 0.6) : k < 1.5 ? vec3(0.62, 0.8, 0.92) : k < 2.5 ? vec3(0.42, 0.24, 0.18)
@@ -405,6 +420,29 @@ vec3 comet(vec2 uv, float ap){
   return (1.0 - exp(-c))*uCmH.w;
 }
 
+// 별의 빛번짐과 회절 빛줄기 (렌즈에서 생기므로 행성 위에도 겹친다). 별이 행성 뒤로 숨으면 함께 사라진다. k: 세기
+vec3 starFlare(vec3 sdir, float r0, vec3 hue, vec2 uv, vec3 ro, float k){
+  if(sdir.z >= 0.0) return vec3(0.0);
+  vec2 uvStar = sdir.xy/(-sdir.z)*uSkyFocal;
+  vec2 dv = uv - uvStar;
+  float rS = r0*uSkyFocal;
+  vec3 rdc = normalize(vec3(uvStar, -uFocal));
+  float bc = dot(ro, rdc);
+  float dc = sqrt(max(dot(ro, ro) - bc*bc, 0.0));
+  float m = r0*uCamDist + 0.004;
+  float vis = smoothstep(1.0 - m, 1.0 + m, dc);
+  float L = length(dv);
+  float wing = 0.35*pow(1.0 + L/(rS*1.5 + 0.002), -1.8) + 0.03*pow(1.0 + L/0.05, -1.5);
+  float ang = 0.42;
+  vec2 q = vec2(cos(ang)*dv.x - sin(ang)*dv.y, sin(ang)*dv.x + cos(ang)*dv.y);
+  float pw = 0.9/uRes.y;
+  vec3 sl = (rS*2.0 + 0.004)*vec3(1.12, 1.0, 0.88);
+  vec2 aq = abs(q);
+  float wx = pw*pw/((aq.y + pw)*(aq.y + pw)), wy = pw*pw/((aq.x + pw)*(aq.x + pw));
+  vec3 spikes = (wx*pow(1.0 + aq.x/sl, vec3(-1.25))*exp(-aq.x/(sl*18.0)) + wy*pow(1.0 + aq.y/sl, vec3(-1.25))*exp(-aq.y/(sl*18.0)))*0.6;
+  return 1.0 - exp(-(hue*wing + spikes*mix(hue, vec3(1.0), 0.5))*vis*k);
+}
+
 void main(){
   vec2 uv = (gl_FragCoord.xy - uOffset - 0.5*uRes)/uRes.y - uShift;
   vec3 ro = vec3(0.0, 0.0, uCamDist);
@@ -477,34 +515,31 @@ void main(){
   float coreA = min(1.0, max(coreC.r, max(coreC.g, coreC.b)));
   col += coreC*(1.0 - alpha);
   alpha += coreA*(1.0 - alpha);
+  vec3 hue2 = mix(clamp((uStar2Col - 0.45)/0.55, 0.0, 1.0), vec3(1.0), 0.2);
+  if(uStar2.w > 0.0){
+    // 두 번째 해 (두 별을 함께 도는 행성의 하늘): 모항성과 같은 모양, 더 작고 차가운 별
+    float sd2 = 2.0*asin(clamp(length(rdS - uStar2.xyz)*0.5, 0.0, 1.0));
+    float r2 = max(uStar2.w, apS*1.5), qq = sd2*sd2/(r2*r2);
+    vec3 c2 = vec3(pow(1.0 + qq/1.1, -2.4), pow(1.0 + qq, -2.4), pow(1.0 + qq/0.9, -2.4))*5.0 + 0.12*pow(1.0 + sd2/(r2*3.0), -1.8);
+    c2 = 1.0 - exp(-c2*hue2);
+    col += c2*(1.0 - alpha);
+    alpha += min(1.0, max(c2.r, max(c2.g, c2.b)))*(1.0 - alpha);
+  }
   if(uSky > 0.5 && alpha < 0.999){
-    vec3 sky = skyColor(uView*rdS, apS) + comet(uv, apS) + siblings(rdS, apS);
+    vec3 sky = skyColor(uView*rdS, apS) + comet(uv, apS) + siblings(rdS, apS) + companions(rdS, apS);
     col += sky*(1.0 - alpha);
     alpha += min(1.0, max(sky.r, max(sky.g, sky.b)))*(1.0 - alpha);
   }
-  // 넓게 번지는 빛과 회절 빛줄기는 렌즈에서 생기므로 행성 위에도 겹친다. 별이 행성 뒤로 숨으면 함께 사라진다
-  if(uLight.z < 0.0){
-    vec2 uvStar = uLight.xy/(-uLight.z)*uSkyFocal;
-    vec2 dv = uv - uvStar;
-    float rS = r0*uSkyFocal;
-    vec3 rdc = normalize(vec3(uvStar, -uFocal));
-    float bc = dot(ro, rdc);
-    float dc = sqrt(max(dot(ro, ro) - bc*bc, 0.0));
-    float m = r0*uCamDist + 0.004;
-    float vis = smoothstep(1.0 - m, 1.0 + m, dc);
-    float L = length(dv);
-    float wing = 0.35*pow(1.0 + L/(rS*1.5 + 0.002), -1.8) + 0.03*pow(1.0 + L/0.05, -1.5);
-    float ang = 0.42;
-    vec2 q = vec2(cos(ang)*dv.x - sin(ang)*dv.y, sin(ang)*dv.x + cos(ang)*dv.y);
-    float pw = 0.9/uRes.y;
-    vec3 sl = (rS*2.0 + 0.004)*vec3(1.12, 1.0, 0.88);
-    vec2 aq = abs(q);
-    float wx = pw*pw/((aq.y + pw)*(aq.y + pw)), wy = pw*pw/((aq.x + pw)*(aq.x + pw));
-    vec3 spikes = (wx*pow(1.0 + aq.x/sl, vec3(-1.25))*exp(-aq.x/(sl*18.0)) + wy*pow(1.0 + aq.y/sl, vec3(-1.25))*exp(-aq.y/(sl*18.0)))*0.6;
-    vec3 flare = 1.0 - exp(-(hue*wing + spikes*mix(hue, vec3(1.0), 0.5))*vis);
-    col += flare*(1.0 - col);
-    alpha = max(alpha, min(1.0, max(flare.r, max(flare.g, flare.b))));
+  // 넓게 번지는 빛과 회절 빛줄기는 렌즈에서 생기므로 행성 위에도 겹친다. 두 번째 해가 있으면 더 약하게 함께
+  vec3 flare = starFlare(uLight, r0, hue, uv, ro, 1.0);
+  if(uStar2.w > 0.0) flare = 1.0 - (1.0 - flare)*(1.0 - starFlare(uStar2.xyz, max(uStar2.w, apS*1.5), hue2, uv, ro, 0.5));
+  // 멀리 떨어진 동반성: 어떤 별보다도 훨씬 밝아서(보름달급) 약한 빛줄기가 생긴다
+  for(int i = 0; i < 2; i++){
+    if(uComp[i].w <= 0.0) break;
+    flare = 1.0 - (1.0 - flare)*(1.0 - starFlare(uComp[i].xyz, apS*1.5, mix(uCompC[i].rgb, vec3(1.0), 0.3), uv, ro, 0.28*uComp[i].w));
   }
+  col += flare*(1.0 - col);
+  alpha = max(alpha, min(1.0, max(flare.r, max(flare.g, flare.b))));
 
   alpha = clamp(alpha, 0.0, 1.0);
   col = min(col, vec3(alpha));
@@ -704,7 +739,16 @@ void main(){
       }
       // 이웃 행성 (행성 화면에서만)
       const sib = meteors ? this._siblings(v, st.V) : [];
-      this.sibLabels = meteors ? sib : null;
+      // 여러 별로 이루어진 항성계: 두 번째 해, 멀리 떨어진 동반성
+      const s2 = meteors ? this._star2(v, st.V) : null;
+      f4('uStar2', s2 || [0, 0, 1, 0]);
+      if (s2) f3('uStar2Col', v.star2.col);
+      const comps = meteors ? (v.companions || []).map((c) => ({ name: '동반성', dir: M.vec(st.V, c.dir), rho: 0, c })) : [];
+      const ca = new Float32Array(8), cc = new Float32Array(8);
+      comps.forEach((o, i) => { ca.set([...o.dir, o.c.bright], i * 4); cc.set([...o.c.col, 0], i * 4); });
+      if (u['uComp[0]']) gl.uniform4fv(u['uComp[0]'], ca);
+      if (u['uCompC[0]']) gl.uniform4fv(u['uCompC[0]'], cc);
+      this.sibLabels = meteors ? sib.concat(comps) : null;
       const sa = new Float32Array(28), sl = new Float32Array(28);
       sib.forEach((b, i) => { sa.set([...b.dir, b.rho], i * 4); sl.set([...b.light, b.kind], i * 4); });
       if (u['uSib[0]']) gl.uniform4fv(u['uSib[0]'], sa);
@@ -722,6 +766,18 @@ void main(){
         f4('uMetB' + i, M.vec(st.V, m.b).concat(m.bright * env));
       }
       gl.drawArrays(gl.TRIANGLES, 0, 3);
+    }
+
+    /* 두 번째 해: 모항성과 같은 궤도면 위에서, 두 별이 서로 도는 주기(오늘 날짜)에 따라 모항성 옆으로 벌어졌다 좁혀진다.
+     * 간격(라디안) ≈ 두 별 사이 거리 ÷ 행성 궤도 반지름 */
+    _star2(v, V) {
+      if (!v.star2) return null;
+      const s = v.star2, L = LIGHT, k = L[1];
+      const N = norm([-L[0] * k, 1 - L[1] * k, -L[2] * k]);
+      const u2 = [N[1] * -L[2] - N[2] * -L[1], N[2] * -L[0] - N[0] * -L[2], N[0] * -L[1] - N[1] * -L[0]];
+      const dl = s.sep * Math.sin((Date.now() / 864e5 / s.P) * Math.PI * 2 + s.h);
+      const dir = norm([L[0] * Math.cos(dl) + u2[0] * Math.sin(dl), L[1] * Math.cos(dl) + u2[1] * Math.sin(dl), L[2] * Math.cos(dl) + u2[2] * Math.sin(dl)]);
+      return [...M.vec(V, dir), (v.starAng || 0.006) * s.size];
     }
 
     /* 이웃 행성의 위치: 모든 행성이 같은 평면에서 원 궤도를 돈다고 보고, 오늘 날짜의 궤도 위치로 계산한다.

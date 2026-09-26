@@ -177,6 +177,11 @@ async function main() {
     p.top, p.reason, g(p.esi, 2),
   ]);
 
+  // 두 별을 함께 도는(쌍성 둘레) 행성 이름
+  const cbQ = `${TAP}?query=${encodeURIComponent('select pl_name from pscomppars where cb_flag=1')}&format=csv`;
+  const names = new Set(rows.map((r) => r[0]));
+  const cb = (await (await fetch(cbQ)).text()).trim().split('\n').slice(1)
+    .map((l) => l.trim().replace(/^"|"$/g, '')).filter((n) => names.has(n)).sort();
   const today = new Date().toISOString().slice(0, 10);
   const out = `/* NAMEVERSE — NASA Exoplanet Archive 확인된 외계행성 (${today} 기준, ${rows.length}개)
  * tools/build-exoplanets.js가 만든 파일입니다. 직접 고치지 마세요.
@@ -193,6 +198,8 @@ async function main() {
     facilities: ${JSON.stringify(facilities)},
     constellations: ${JSON.stringify(cons.map((c) => CON_KO[c] || c))},
     reasons: ${JSON.stringify(REASONS)},
+    // 두 별을 함께 도는(쌍성 둘레) 행성: cb_flag=1
+    cb: ${JSON.stringify(cb)},
     rows: [
 ${rows.map((r) => '      ' + JSON.stringify(r)).join(',\n')},
     ],
