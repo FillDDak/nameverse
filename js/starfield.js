@@ -223,6 +223,25 @@
       this.cometU = { H: [h[0], h[1], r, env], I: [ion[0], ion[1], ext, c.seed], D: [C[0], C[1], E[0], E[1]], col: c.dust };
     }
 
+    // 이웃 행성 이름표 (행성 셰이더가 그린 원반·점 옆에). 행성에 가려지면 함께 가려진다
+    _drawLabels(view) {
+      if (!this.labels || !this.labels.length) return;
+      const ctx = this.ctx, W = this.w, H = this.h, F = view.focal, [sx, sy] = view.shift, dpr = this.dpr;
+      ctx.save();
+      ctx.font = `500 ${11 * dpr}px Pretendard, -apple-system, "Malgun Gothic", sans-serif`;
+      ctx.textBaseline = 'middle';
+      ctx.fillStyle = 'rgba(238, 241, 255, 0.55)';
+      for (const b of this.labels) {
+        const d = b.dir;
+        if (d[2] > -0.05) continue;
+        const x = W / 2 + (d[0] / -d[2] * F + sx) * H, y = H / 2 - (d[1] / -d[2] * F + sy) * H;
+        if (x < -200 || x > W + 50 || y < -20 || y > H + 20) continue;
+        const r = Math.max(2 * dpr, b.rho * F * H);
+        ctx.fillText(b.name, x + r + 6 * dpr, y);
+      }
+      ctx.restore();
+    }
+
     _drawSky(dt) {
       const ctx = this.ctx, view = this.view, V = view.V;
       // 카메라의 오른쪽 방향(월드 좌표)의 반대로 이동 → 화면에서는 늘 왼쪽으로 흐른다
@@ -285,6 +304,7 @@
       ctx.globalAlpha = 1;
       if (this.sky) {
         this._drawSky(dt);
+        this._drawLabels(this.view);
         // 도착하고 조금 뒤 첫 혜성, 그다음부터는 1~2분에 한 번꼴
         if (this.comet) this._updateComet(dt, this.view);
         else if ((this.cometWait -= dt) <= 0) {

@@ -142,6 +142,7 @@
       stars.auto = auto;
       renderer.pulse = music.getLevel();
       renderer.comet = stars.cometU;
+      stars.labels = S.mode === 'world' ? renderer.sibLabels : null;
       renderer.render(now / 1000);
       // 프레임이 느리면 해상도를 낮추고, 여유가 있으면 다시 높인다
       perf.acc += dt; perf.n++; perf.cool -= dt;

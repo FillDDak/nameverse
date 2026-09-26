@@ -20,6 +20,7 @@ uniform float uBands, uTurb, uStormSize; uniform vec3 uStorm;
 uniform float uRing, uRingSeed; uniform vec3 uRingN; uniform vec2 uRingR; uniform vec3 uRingCol;
 uniform vec4 uMoon0, uMoon1, uMoon2; uniform vec3 uMoonCol0, uMoonCol1, uMoonCol2;
 uniform float uStarR, uSkyFocal, uSky; uniform mat3 uView;
+uniform vec4 uSib[7], uSibL[7]; // 이웃 행성: 방향(시점 좌표) + 보이는 반지름(rad), 이웃 행성에서 모항성 방향 + 색 번호
 uniform vec3 uLock; // 조석 고정: x 여부, y 얼음 경계(별을 마주한 정도 cos θ가 이보다 작으면 얼음), z 낮 쪽 한가운데의 달아오름
 uniform vec4 uCmH, uCmI, uCmD; uniform vec3 uCmCol; // 혜성: 머리(xy, 크기, 밝기), 이온 꼬리 끝(xy, 범위, 씨앗), 먼지 꼬리 베지어(조절점, 끝)
 uniform vec4 uMetA0, uMetB0, uMetA1, uMetB1; // 유성: A.xyz 시작, A.w 머리 위치(0~1), B.xyz 끝, B.w 밝기
@@ -321,6 +322,37 @@ vec3 skyColor(vec3 d, float ap){
   return starLayer(d, 120.0, ap, 0.09, 0.5) + starLayer(d, 240.0, ap, 0.07 + band*0.2, 0.3) + starLayer(d, 330.0, ap, band*0.35, 0.25) + mw;
 }
 
+// 이웃 행성: 모항성 빛을 받아 초승달~보름달로 보이는 원반. 너무 작으면 밝은 점
+vec3 sibColor(float k){
+  return k < 0.5 ? vec3(0.86, 0.76, 0.6) : k < 1.5 ? vec3(0.62, 0.8, 0.92) : k < 2.5 ? vec3(0.42, 0.24, 0.18)
+       : k < 3.5 ? vec3(0.8, 0.6, 0.42) : k < 4.5 ? vec3(0.55, 0.7, 0.88) : vec3(0.92, 0.95, 1.0);
+}
+vec3 siblings(vec3 d, float ap){
+  vec3 c = vec3(0.0);
+  for(int i = 0; i < 7; i++){
+    vec4 s = uSib[i];
+    if(s.w <= 0.0) break;
+    float cd = dot(d, s.xyz);
+    if(cd < 0.995) continue;
+    vec3 x = d - s.xyz*cd;
+    float rr = length(x), rho = s.w;
+    vec3 L = uSibL[i].xyz, col = sibColor(uSibL[i].w)*uLightCol;
+    if(rho > ap*1.5){
+      // 원반: 보는 쪽 반구의 법선으로 모항성 빛을 받는 정도를 계산 (가장자리는 한 픽셀에 걸쳐 부드럽게)
+      float r = rr/rho;
+      float edge = smoothstep(1.0, 1.0 - ap/rho, r);
+      vec3 n = x/rho - s.xyz*sqrt(max(0.0, 1.0 - r*r));
+      c += col*max(dot(n, L), 0.0)*1.15*edge;
+    } else {
+      // 점: 밝은 면이 보이는 비율만큼. 아주 작아도 밝은 별처럼은 보이게 한다
+      float ph = 0.5 + 0.5*dot(L, -s.xyz);
+      float b = max(rho*rho/(ap*ap)*1.3, 0.35)*ph;
+      c += col*b*exp(-rr*rr/(ap*ap*0.9))*1.8;
+    }
+  }
+  return c;
+}
+
 // 혜성 (하늘 uv 공간). 모항성 반대쪽으로 곧게 뻗는 푸른 이온 꼬리 가닥들과, 궤도 뒤로 휘며 넓게 퍼지는 먼지 꼬리
 float hash1(float n){ return fract(sin(n)*43758.5453); }
 vec3 comet(vec2 uv, float ap){
@@ -446,7 +478,7 @@ void main(){
   col += coreC*(1.0 - alpha);
   alpha += coreA*(1.0 - alpha);
   if(uSky > 0.5 && alpha < 0.999){
-    vec3 sky = skyColor(uView*rdS, apS) + comet(uv, apS);
+    vec3 sky = skyColor(uView*rdS, apS) + comet(uv, apS) + siblings(rdS, apS);
     col += sky*(1.0 - alpha);
     alpha += min(1.0, max(sky.r, max(sky.g, sky.b)))*(1.0 - alpha);
   }
@@ -670,6 +702,13 @@ void main(){
         f4('uMoon' + i, m || [0, 0, 0, 0]);
         f3('uMoonCol' + i, m ? v.moons[i].color : [0, 0, 0]);
       }
+      // 이웃 행성 (행성 화면에서만)
+      const sib = meteors ? this._siblings(v, st.V) : [];
+      this.sibLabels = meteors ? sib : null;
+      const sa = new Float32Array(28), sl = new Float32Array(28);
+      sib.forEach((b, i) => { sa.set([...b.dir, b.rho], i * 4); sl.set([...b.light, b.kind], i * 4); });
+      if (u['uSib[0]']) gl.uniform4fv(u['uSib[0]'], sa);
+      if (u['uSibL[0]']) gl.uniform4fv(u['uSibL[0]'], sl);
       const cm = meteors && this.comet;
       f4('uCmH', cm ? cm.H : [0, 0, 0, 0]);
       if (cm) { f4('uCmI', cm.I); f4('uCmD', cm.D); f3('uCmCol', cm.col); }
@@ -683,6 +722,27 @@ void main(){
         f4('uMetB' + i, M.vec(st.V, m.b).concat(m.bright * env));
       }
       gl.drawArrays(gl.TRIANGLES, 0, 3);
+    }
+
+    /* 이웃 행성의 위치: 모든 행성이 같은 평면에서 원 궤도를 돈다고 보고, 오늘 날짜의 궤도 위치로 계산한다.
+     * 모항성을 원점, 이 행성을 모항성 반대쪽(-LIGHT) 방향에 둔다. 결과는 시점 좌표의 방향과 보이는 반지름 */
+    _siblings(v, V) {
+      if (!v.orbit || !v.siblings.length) return [];
+      const days = Date.now() / 864e5;
+      const L = LIGHT, up = [0, 1, 0], k = L[1];
+      const N = norm([up[0] - L[0] * k, up[1] - L[1] * k, up[2] - L[2] * k]);
+      const u1 = [-L[0], -L[1], -L[2]];
+      const u2 = [N[1] * u1[2] - N[2] * u1[1], N[2] * u1[0] - N[0] * u1[2], N[0] * u1[1] - N[1] * u1[0]];
+      const ang = (o) => (o.P ? (days / o.P) * Math.PI * 2 : 0) + o.h;
+      const t0 = ang(v.orbit), X = [u1[0] * v.orbit.a, u1[1] * v.orbit.a, u1[2] * v.orbit.a];
+      const R_EARTH_AU = 4.2635e-5;
+      return v.siblings.map((s) => {
+        const dt = ang(s) - t0, c = Math.cos(dt) * s.a, sn = Math.sin(dt) * s.a;
+        const Y = [u1[0] * c + u2[0] * sn, u1[1] * c + u2[1] * sn, u1[2] * c + u2[2] * sn];
+        const d = [Y[0] - X[0], Y[1] - X[1], Y[2] - X[2]], dist = Math.hypot(d[0], d[1], d[2]);
+        return { name: s.name, kind: s.kind, rho: (s.rade * R_EARTH_AU) / dist,
+          dir: M.vec(V, norm(d)), light: M.vec(V, norm([-Y[0], -Y[1], -Y[2]])) };
+      });
     }
 
     // 2D 별밭이 행성과 같은 카메라로 하늘을 그리도록: 시점 회전, 하늘 초점거리, 화면 이동

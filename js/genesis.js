@@ -398,6 +398,25 @@
   }
 
   /* 관측 사실로 쓰는 문장 */
+  /* 같은 항성계의 이웃 행성: 모항성 이름이 같은 행 */
+  let HOSTS = null;
+  function siblingRows(host, self) {
+    if (!HOSTS) {
+      HOSTS = new Map();
+      EXO.rows.forEach((r, k) => { const a = HOSTS.get(r[1]); if (a) a.push(k); else HOSTS.set(r[1], [k]); });
+    }
+    return (HOSTS.get(host) || []).filter((k) => EXO.rows[k][0] !== self);
+  }
+  // 궤도 위의 시작 위치(실제 값은 알려져 있지 않다): 행성 이름으로 정해 누구에게나 같다
+  const orbitPhase = (name) => (NV.hash('orbit/' + name)[0] / 4294967296) * Math.PI * 2;
+  // 하늘에서 본 색: 크기와 온도로 고른 대략적인 반사색 (0 가스, 1 얼음 거인, 2 용암, 3 사막, 4 온화, 5 얼음)
+  function siblingKind(rade, masse, eqt) {
+    if (rade >= 6 || masse >= 50) return 0;
+    if (rade >= 2.2) return eqt == null || eqt < 400 ? 1 : 0;
+    if (eqt == null) return 3;
+    return eqt > 1000 ? 2 : eqt > 320 ? 3 : eqt >= 175 ? 4 : 5;
+  }
+
   function kindOf(p) {
     const R = p.rade, T = p.eqt;
     if (R >= 6 || p.masse >= 50) {
@@ -437,7 +456,12 @@
     if (p.a != null && p.a < 0.1 && p.rade < 6) out.push('별에 매우 가까워서 조석 고정되었을 가능성이 높습니다. 그렇다면 한쪽은 늘 낮, 반대쪽은 늘 밤입니다. 그림 속 행성도 자전하지 않고 늘 같은 면이 별을 향하도록 그렸습니다.');
     if (p.ecc != null && p.ecc > 0.4) out.push(`궤도가 많이 찌그러져 있어서(이심률 ${p.ecc}), 별에 가까워지는 계절과 멀어지는 계절의 차이가 큽니다.`);
     if (p.snum > 1) out.push(`이 항성계에는 별이 ${p.snum}개 있습니다.`);
-    if (p.pnum > 1) out.push(`같은 항성계에서 행성이 ${p.pnum - 1}개 더 발견되었습니다.`);
+    if (p.pnum > 1) {
+      const sib = siblingRows(p.host, p.name).map((k) => EXO.rows[k][0]);
+      out.push(`같은 항성계에서 행성이 ${p.pnum - 1}개 더 발견되었습니다.` + (sib.length && p.a != null
+        ? ` 이 행성의 하늘에는 ${josa(sib.join(', '), '이/가')} 초승달이나 밝은 점으로 떠 있습니다(실제 크기와 궤도로 계산한 위치).`
+        : ''));
+    }
     return out.join(' ');
   }
 
@@ -527,6 +551,13 @@
       v.lockIce = wet ? (Tsub != null ? Math.min(1.5, Math.pow(273 / (Tsub * 1.13), 4)) : 0.5) : -2;
       v.lockGlow = v.type === 0 && Tsub != null ? Math.min(1, Math.max(0, (Tsub - 900) / 600)) : 0;
     }
+    // 하늘에 뜨는 이웃 행성: 실제 궤도 반지름(없으면 공전 주기 비율로 케플러 제3법칙)과 반지름
+    v.orbit = p.a != null ? { a: p.a, P: p.per, h: orbitPhase(p.name) } : null;
+    v.siblings = !v.orbit ? [] : siblingRows(p.host, p.name).map((k) => {
+      const r = EXO.rows[k];
+      const a = r[8] != null ? r[8] : r[7] != null && p.per != null ? p.a * Math.pow(r[7] / p.per, 2 / 3) : null;
+      return a != null && r[3] != null ? { name: r[0], a, rade: r[3], P: r[7], h: orbitPhase(r[0]), kind: siblingKind(r[3], r[4], r[10]) } : null;
+    }).filter(Boolean).slice(0, 7);
     v.cloudSpeed = rv.range(0.008, 0.02);
 
     // 고리와 위성 (외계행성의 고리·위성은 아직 관측된 적이 없어서 상상으로 그린다)
