@@ -110,6 +110,17 @@
         d.vx *= damp; d.vy *= damp;
         d.y += (0 - d.y) * Math.min(1, dt * 0.35);
         d.y = Math.max(-1.1, Math.min(1.1, d.y));
+        // 한동안 손대지 않으면 시점이 천천히 행성 주위를 돈다(몇 초에 걸쳐 부드럽게 빨라짐).
+        // 너무 높거나 낮은 시점은 알맞은 높이로 천천히 돌아온다
+        if (!S.viewReset && viewing() && !reducedMotion) {
+          const x = Math.min(1, Math.max(0, ((now - S.idleAt) / 1000 - AUTO_DELAY) / AUTO_RAMP));
+          const k = x * x * (3 - 2 * x);
+          if (k > 0) {
+            c.yaw += AUTO_YAW * S.autoDir * k * dt;
+            const target = Math.max(-PITCH_BAND, Math.min(PITCH_BAND, c.pitch));
+            c.pitch += (target - c.pitch) * (1 - Math.exp(-dt * 0.7 * k));
+          }
+        }
       }
       renderer.pulse = music.getLevel();
       renderer.comet = stars.cometU;
@@ -285,6 +296,7 @@
     if (renderer) {
       renderer.zoom = 1;
       if (!same) Object.assign(renderer.cam, { yaw: 0, pitch: 0, vyaw: 0, vpitch: 0 });
+      S.idleAt = performance.now(); // 도착하고 잠시 뒤부터 자동 회전
       renderer.setWorlds([w], { grow: !same });
     }
     renderPanel(w);
@@ -539,6 +551,11 @@
   /* ───────────── 조작: 드래그 = 행성 회전 · 오른쪽 드래그/두 손가락 = 시점 이동 · 핀치/휠 = 확대 ───────────── */
   // 확대 한계: 카메라와 행성 중심 거리 = 6 / zoom → 가장 가까이 2.5, 가장 멀리 100 (행성 반지름 = 1)
   const ZOOM_MIN = 0.06, ZOOM_MAX = 2.4;
+  // 자동 회전: 마지막 조작 AUTO_DELAY초 뒤부터 AUTO_RAMP초에 걸쳐 AUTO_YAW(rad/s, 약 2.6분에 한 바퀴)까지 빨라진다.
+  // 시점 높이는 ±PITCH_BAND(약 16°) 안으로 돌아온다
+  const AUTO_DELAY = 5, AUTO_RAMP = 4, AUTO_YAW = 0.04, PITCH_BAND = 0.28;
+  S.idleAt = performance.now(); S.autoDir = 1; // +1: 별이 흐르는 방향(화면 왼쪽)과 같은 쪽으로 돈다
+  const poke = () => { S.idleAt = performance.now(); };
   const pointers = new Map();   // pointerId → {x, y}
   const pointer = { down: false, mode: 'spin', x: 0, y: 0, moved: 0, t: 0, dist: 0 };
   const viewing = () => S.mode === 'world' || S.mode === 'duo';
@@ -562,6 +579,7 @@
   el.canvas.addEventListener('contextmenu', (e) => e.preventDefault());
   el.canvas.addEventListener('pointerdown', (e) => {
     if (!renderer || S.mode === 'scan') return;
+    poke();
     pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
     el.canvas.setPointerCapture(e.pointerId);
     el.canvas.classList.add('grabbing');
@@ -576,6 +594,7 @@
   });
   el.canvas.addEventListener('pointermove', (e) => {
     if (!pointers.has(e.pointerId)) return;
+    poke();
     pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
     const [cx, cy] = centroid();
     const dx = cx - pointer.x, dy = cy - pointer.y;
@@ -587,6 +606,7 @@
       c.yaw += dx * 0.006;
       c.pitch = Math.max(-1.35, Math.min(1.35, c.pitch + dy * 0.005));
       c.vyaw = (dx * 0.006) / dt * 0.6 + c.vyaw * 0.4;
+      if (Math.abs(dx) > 2) S.autoDir = Math.sign(dx); // 자동 회전은 마지막으로 돌린 방향을 따른다
       c.vpitch = (dy * 0.005) / dt * 0.6 + c.vpitch * 0.4;
       if (pointers.size >= 2) {
         const dist = spread();
@@ -605,6 +625,7 @@
   const endPointer = (e) => {
     if (!pointers.has(e.pointerId)) return;
     pointers.delete(e.pointerId);
+    poke();
     if (pointers.size) { beginGesture(pointer.mode); return; } // 손가락 하나를 먼저 떼도 튀지 않게
     pointer.down = false;
     el.canvas.classList.remove('grabbing');
@@ -619,12 +640,18 @@
   el.canvas.addEventListener('wheel', (e) => {
     if (!renderer || !viewing()) return;
     e.preventDefault();
+    poke();
     renderer.zoom = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, renderer.zoom * Math.exp(-e.deltaY * 0.0012)));
     hideProbe();
   }, { passive: false });
   // 더블클릭(더블탭): 처음 시점으로
   el.canvas.addEventListener('dblclick', () => { if (renderer && viewing()) resetView(); });
-  function resetView() { S.viewReset = true; }
+  function resetView() {
+    // 자동 회전으로 여러 바퀴 돈 시점도 가까운 쪽으로 한 번에 돌아오게
+    const c = renderer.cam;
+    c.yaw = Math.atan2(Math.sin(c.yaw), Math.cos(c.yaw));
+    S.viewReset = true; poke();
+  }
 
   let probeTimer;
   function doProbe(x, y) {
