@@ -244,7 +244,7 @@
       ? `오늘은 <b>${esc(w.planet)}</b>에서 ${w.bday.n.toLocaleString('ko-KR')}번째 생일이에요`
       : n
         ? `지평선 너머에 <b>${esc(w.planet)}</b> 행성이 떠오르고 있어요 · ${esc(w.biome.name)}`
-        : '이름과 생일을 넣으면 지평선 너머의 행성이 바뀝니다';
+        : '한 글자씩 입력할 때마다 지평선 너머의 행성이 바뀝니다';
     // 입력 중에는 곡을 매번 새로 작곡하지 않도록 잠시 멈췄을 때만 바꾼다
     if (music.playing) { clearTimeout(musicTimer); musicTimer = setTimeout(() => playMusic(w).catch(() => {}), 800); }
   }
