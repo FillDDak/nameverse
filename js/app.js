@@ -113,6 +113,7 @@
       }
       // 한동안 돌리지 않으면 시점이 천천히 행성 주위를 돈다(몇 초에 걸쳐 부드럽게 빨라짐).
       // 너무 높거나 낮은 시점은 알맞은 높이로 천천히 돌아온다. 확대·축소(휠, 핀치)는 회전을 끊지 않는다
+      let auto = null;
       if (!S.viewReset && viewing() && !reducedMotion && !(pointer.down && pointers.size < 2)) {
         const x = Math.min(1, Math.max(0, ((now - S.idleAt) / 1000 - AUTO_DELAY) / AUTO_RAMP));
         const k = x * x * (3 - 2 * x);
@@ -120,8 +121,11 @@
           c.yaw += AUTO_YAW * S.autoDir * k * dt;
           const target = Math.max(-PITCH_BAND, Math.min(PITCH_BAND, c.pitch));
           c.pitch += (target - c.pitch) * (1 - Math.exp(-dt * 0.3 * k));
+          // 거의 다 빨라졌으면 앞으로의 시점을 예측할 수 있다: 혜성이 이 회전을 따라 화면에 들어오게 한다
+          if (k > 0.75) auto = { spin: AUTO_YAW * S.autoDir, pitch: target };
         }
       }
+      stars.auto = auto;
       renderer.pulse = music.getLevel();
       renderer.comet = stars.cometU;
       renderer.render(now / 1000);

@@ -313,6 +313,11 @@ vec3 comet(vec2 uv, float ap){
   vec2 h = uCmH.xy, d0 = uv - h;
   if(uCmH.w <= 0.0 || dot(d0, d0) > uCmI.z*uCmI.z) return vec3(0.0);
   float r = max(uCmH.z, ap*0.8), sd = uCmI.w;
+  // 꼬리 근처가 아닌 픽셀은 바로 건너뛴다 (이온 꼬리 선분, 먼지 꼬리 현에서 휜 정도 + 최대 폭보다 멀면)
+  vec2 ia = uCmI.xy - h, da = uCmD.zw - h;
+  float di = length(d0 - ia*clamp(dot(d0, ia)/max(dot(ia, ia), 1e-9), 0.0, 1.0));
+  float dd = length(d0 - da*clamp(dot(d0, da)/max(dot(da, da), 1e-9), 0.0, 1.0)) - length(uCmD.xy - 0.5*(h + uCmD.zw));
+  if(min(di - r*18.0, dd - r*45.0) > ap*4.0 && length(d0) > r*16.0) return vec3(0.0);
   vec3 c = vec3(0.0);
   // 이온 꼬리: 항성풍에 흔들리는 가는 가닥 여러 개. 물결과 밝은 매듭이 천천히 바깥으로 흘러간다
   vec2 ax = uCmI.xy - h; float L = max(length(ax), 1e-5);
@@ -672,7 +677,8 @@ void main(){
       if (!vp || !vp.sky) return null;
       const st = this._state(this.slots[0], time, vp);
       const v = this.slots[0].world.visual;
-      return { V: st.V, focal: st.skyFocal, shift: vp.shift, cam: starCam(this.zoom, st.camDist), lightCol: v.lightCol || [1, 0.96, 0.9] };
+      return { V: st.V, yaw: this.cam.yaw, pitch: this.cam.pitch, focal: st.skyFocal, shift: vp.shift, cam: starCam(this.zoom, st.camDist),
+        lightCol: v.lightCol || [1, 0.96, 0.9] };
     }
 
     // 화면 좌표(캔버스 픽셀, 위쪽 원점) → 행성 표면의 로컬 좌표

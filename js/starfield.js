@@ -23,6 +23,11 @@
   const vscale = (a, k) => [a[0] * k, a[1] * k, a[2] * k];
   const vcross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
   const vnorm = (a) => vscale(a, 1 / (Math.hypot(a[0], a[1], a[2]) || 1));
+  // 행성 화면의 시점 회전 V = rx(pitch)·ry(yaw) (planet-gl.js와 같은 행 우선 행렬)
+  const viewMatrix = (pitch, yaw) => {
+    const cp = Math.cos(pitch), sp = Math.sin(pitch), cy = Math.cos(yaw), sy = Math.sin(yaw);
+    return [cy, 0, sy, sp * sy, cp, -sp * cy, -cp * sy, sp, cp * cy];
+  };
 
   class Starfield {
     constructor(canvas) {
@@ -36,6 +41,7 @@
       this.sky = null;   // 하늘에 고정된 별들 (월드 방향)
       this.comet = null;
       this.cometU = null; // 행성 셰이더가 그릴 혜성의 화면 좌표
+      this.auto = null;   // 시점 자동 회전 {spin: rad/s, pitch}: 혜성이 이 회전을 따라 화면에 들어오게 한다
       this.nebula = document.createElement('canvas');
       this.resize();
       window.addEventListener('pointermove', (e) => {
@@ -153,34 +159,41 @@
         H / 2 - ((V[3] * p[0] + V[4] * p[1] + V[5] * p[2]) / -z * F + sy) * H, -z];
     }
 
-    /* 혜성: 모항성을 향해 떨어지는 중이라 머리가 앞장서고, 꼬리는 늘 모항성 반대쪽으로 뻗는다(항성풍과 빛의 압력).
+    /* 혜성: 실제 혜성처럼 하늘에서 배경 별과 거의 함께 있는 먼 천체다. 모항성을 향해 떨어지는 중이라
+     * 머리 쪽으로 아주 천천히 나아가고, 꼬리는 늘 모항성 반대쪽으로 뻗는다(항성풍과 빛의 압력).
+     * 자동으로 도는 시점이 화면 가장자리에서 혜성을 데려와 지나가게 한다(시점을 멈추고 있을 때는 생기지 않는다).
      * 여기서는 궤도와 3D 위치만 계산해 화면에 투영하고, 모양은 행성 셰이더(하늘)가 픽셀 단위로 그린다 */
-    _spawnComet(view) {
-      const W = this.w, H = this.h, F = view.focal, [sx, sy] = view.shift, V = view.V;
+    _spawnComet(view, auto) {
+      const H = this.h, F = view.focal, [sx, sy] = view.shift;
       const Ls = NV.LIGHT, a = vscale(Ls, -1);
       const D = 3000 + Math.random() * 6000; // 카메라에서의 거리 (가장 먼 별들 사이)
-      // 화면에서 행성 근처의 한 점을 지나가도록 (정보 패널 뒤는 피한다)
+      // tc초 뒤 회전한 시점에서 화면의 행성 근처(정보 패널 쪽 제외)를 지나가도록 놓는다. 지금은 화면 밖(회전해 올 쪽)이다
+      const tc = 18 + Math.random() * 12;
+      const Vc = viewMatrix(auto.pitch, view.yaw + auto.spin * tc);
+      const vc = { V: Vc, focal: F, shift: view.shift, cam: view.cam };
       const mx = sx + (Math.random() - 0.5) * 0.8, my = sy + (Math.random() - 0.5) * 0.4;
-      const M = this._toWorld(V, [(mx - sx) * D / F, (my - sy) * D / F, view.cam - D]);
+      const M = this._toWorld(Vc, [(mx - sx) * D / F, (my - sy) * D / F, view.cam - D]);
       const e1 = vnorm(vcross(Ls, Math.abs(Ls[1]) < 0.9 ? [0, 1, 0] : [1, 0, 0])), e2 = vcross(Ls, e1);
-      // 모항성 쪽으로 25~60° 기울어 떨어지는 궤도 중, 화면에서 움직임이 잘 보이는 방향을 고른다
+      // 모항성 쪽으로 25~60° 기울어 떨어지는 궤도 중, 화면에서 머리가 앞장서는 움직임이 잘 보이는 방향을 고른다
       let best = null;
-      const q0 = this._projectRaw(M, view), eps = D * 0.01;
+      const q0 = this._projectRaw(M, vc), eps = D * 0.01;
       for (let i = 0; i < 16; i++) {
         const al = (25 + Math.random() * 35) * Math.PI / 180, th = Math.random() * Math.PI * 2;
         const w = vadd(vscale(e1, Math.cos(th)), vscale(e2, Math.sin(th)));
         const u = vadd(vscale(Ls, Math.cos(al)), vscale(w, Math.sin(al)));
-        const q1 = this._projectRaw(vadd(M, vscale(u, eps)), view);
+        const q1 = this._projectRaw(vadd(M, vscale(u, eps)), vc);
         if (!q0 || !q1) continue;
         const pxu = Math.hypot(q1[0] - q0[0], q1[1] - q0[1]) / eps;
         if (!best || pxu > best.pxu) best = { u, w, pxu };
       }
       if (!best) { this.cometWait = 5; return; }
-      const S = Math.min(Math.hypot(W, H) * 0.6 / Math.max(best.pxu, 1e-6), D * 0.45);
-      const T = 70 + Math.random() * 30;
+      // 배경 별 사이를 화면 높이의 0.6%/초로만 움직인다 (지나가는 수십 초 동안 화면 높이의 1/10쯤)
+      const speed = Math.min(0.006 * H / Math.max(best.pxu, 1e-6), D * 0.004);
+      const vel = vscale(best.u, speed);
+      const sz = 0.75 + Math.random() * 0.5; // 혜성마다 크기가 다르다
       const lc = view.lightCol || [1, 0.96, 0.9];
-      this.comet = { p: vadd(M, vscale(best.u, -S)), vel: vscale(best.u, 2 * S / T), a, b: vscale(best.w, -1), t: 0, T,
-        L: D * (0.4 + Math.random() * 0.25) / F, r: D * 0.0026 / F, bright: 0.8 + Math.random() * 0.4, seed: Math.random() * 100,
+      this.comet = { p: vadd(M, vscale(vel, -tc)), vel, a, b: vscale(best.w, -1), t: 0, T: tc + 45,
+        L: D * (0.4 + Math.random() * 0.25) / F * sz, r: D * 0.0026 / F * sz, bright: 0.8 + Math.random() * 0.4, seed: Math.random() * 100,
         dust: [lc[0], lc[1] * 0.93, lc[2] * 0.8] }; // 먼지 꼬리는 모항성 빛을 반사한다
     }
 
@@ -274,7 +287,10 @@
         this._drawSky(dt);
         // 도착하고 조금 뒤 첫 혜성, 그다음부터는 1~2분에 한 번꼴
         if (this.comet) this._updateComet(dt, this.view);
-        else if ((this.cometWait -= dt) <= 0) this._spawnComet(this.view);
+        else if ((this.cometWait -= dt) <= 0) {
+          if (this.auto) this._spawnComet(this.view, this.auto);
+          else this.cometWait = 2; // 시점이 자동으로 돌고 있을 때 생긴다
+        }
         ctx.restore(); return;
       }
 
