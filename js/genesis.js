@@ -541,10 +541,10 @@
       };
     } else { rv.next(); v.ring = null; }
 
-    const moonCount = rv.weighted([{ n: 0, weight: 28 }, { n: 1, weight: 35 }, { n: 2, weight: 23 }, { n: 3, weight: 14 }]).n;
+    const moonDraw = rv.weighted([{ n: 0, weight: 28 }, { n: 1, weight: 35 }, { n: 2, weight: 23 }, { n: 3, weight: 14 }]).n;
     v.moons = [];
     const base = Math.max(v.ring ? v.ring.outer + 0.22 : 0, 1.6);
-    for (let i = 0; i < moonCount; i++) {
+    for (let i = 0; i < moonDraw; i++) {
       const dist = base + i * 0.34 + rv.range(0, 0.22);
       v.moons.push({
         r: rv.range(0.07, 0.15), dist,
@@ -553,6 +553,10 @@
         color: hsl(rv.range(0, 360), rv.range(0, 0.18), rv.range(0.55, 0.75)),
       });
     }
+    // 조석 고정될 만큼 별에 가까우면 별의 중력이 너무 강해 고리나 달을 오래 붙잡아 둘 수 없다.
+    // (다른 행성의 모습이 바뀌지 않도록 난수는 똑같이 쓰고 결과만 지운다)
+    if (v.locked) { v.ring = null; v.moons = []; }
+    const moonCount = v.moons.length;
     const moonExt = v.moons.length ? v.moons[v.moons.length - 1].dist + 0.15 : 0;
     v.extent = Math.max(1.28, v.ring ? v.ring.outer * 1.03 : 0, Math.min(moonExt, 2.9));
 
@@ -572,7 +576,7 @@
     // 상상 기록
     const landSentences = rl.sample(biome.land, 2).map((s) => fill(s, vars));
     let moonLine;
-    if (moonCount === 0) moonLine = '달은 없습니다.';
+    if (moonCount === 0) moonLine = v.locked ? '별에 너무 가까워 달을 붙잡아 둘 수 없어서 달은 없습니다.' : '달은 없습니다.';
     else if (moonCount === 1) moonLine = `${josa(moonNames[0], '이라는/라는')} 달 하나가 곁을 돕니다.`;
     else moonLine = `달은 ${moonNames.join(', ')}, 모두 ${moonCount}개입니다.`;
     const habitable = p.rade < 1.8 && p.eqt != null && p.eqt >= 175 && p.eqt <= 320;
