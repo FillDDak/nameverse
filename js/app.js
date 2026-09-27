@@ -97,10 +97,12 @@
       const d = renderer.drag;
       const c = renderer.cam;
       if (S.viewReset) {
-        const k = Math.min(1, dt * 5);
-        c.yaw += (0 - c.yaw) * k; c.pitch += (0 - c.pitch) * k; renderer.zoom += (1 - renderer.zoom) * k;
+        // 처음 시점(true) 또는 정해진 시점({yaw, pitch}: 모항성 보기)으로 부드럽게 돌아간다
+        const T = S.viewReset === true ? { yaw: 0, pitch: 0 } : S.viewReset;
+        const k = Math.min(1, dt * (S.viewReset === true ? 5 : 2.5));
+        c.yaw += (T.yaw - c.yaw) * k; c.pitch += (T.pitch - c.pitch) * k; renderer.zoom += (1 - renderer.zoom) * k;
         c.vyaw = c.vpitch = 0;
-        if (Math.abs(c.yaw) + Math.abs(c.pitch) + Math.abs(renderer.zoom - 1) < 0.002) { c.yaw = c.pitch = 0; renderer.zoom = 1; S.viewReset = false; }
+        if (Math.abs(c.yaw - T.yaw) + Math.abs(c.pitch - T.pitch) + Math.abs(renderer.zoom - 1) < 0.002) { c.yaw = T.yaw; c.pitch = T.pitch; renderer.zoom = 1; S.viewReset = false; }
       }
       if (!pointer.down) {
         c.yaw += c.vyaw * dt; c.pitch = Math.max(-1.35, Math.min(1.35, c.pitch + c.vpitch * dt));
@@ -429,7 +431,8 @@
           ${w.stats.map((s) => `<div class="${s.wide ? 'wide' : ''}"><dt>${esc(s.k)}</dt><dd>${esc(s.v)}</dd></div>`).join('')}
         </dl>
         <div class="p-lore">
-          ${w.lore.filter((s) => s.real).map((s) => `<section class="reveal" ${d()}><h4>${esc(s.title)}</h4><p>${esc(s.text)}</p></section>`).join('')}
+          ${w.lore.filter((s) => s.real).map((s) => `<section class="reveal" ${d()}><h4>${esc(s.title)}</h4><p>${esc(s.text)}</p>${s.sky && w.visual.starAngReal > 0.001
+            ? `<button class="ghost small star-btn" data-act="star" aria-pressed="false">${STAR_BTN[0]}</button>` : ''}</section>`).join('')}
         </div>
         <h3 class="p-h reveal" ${d()}>상상 기록 <small>실제 데이터에 상상을 더한 이야기</small></h3>
         <div class="p-tags reveal" ${d()}>${w.tags.map((t) => `<span>${esc(t)}</span>`).join('')}</div>
@@ -455,6 +458,7 @@
     else if (act === 'card') savePostcard(b);
     else if (act === 'share') shareLink();
     else if (act === 'duo') openDuoModal();
+    else if (act === 'star') toggleStarView(b);
     else if (act === 'new') { location.hash = ''; setTimeout(() => { el.name.value = ''; updatePreview(true); el.name.focus(); }, 50); }
     else if (act === 'back') go(S.world.owner);
     else if (act === 'other') go(S.partner.owner);
@@ -748,6 +752,21 @@
   }, { passive: false });
   // 더블클릭(더블탭): 처음 시점으로
   el.canvas.addEventListener('dblclick', () => { if (renderer && viewing()) resetView(); });
+  /* 모항성을 실제 겉보기 크기로 그리고, 시점을 돌려 행성 옆에 보이게 한다. 다시 누르면 줄인 크기와 처음 시점으로 */
+  const STAR_BTN = ['☀ 모항성을 실제 크기로 보기', '↺ 원래대로 보기'];
+  function toggleStarView(b) {
+    if (!renderer || !renderer.slots[0]) return;
+    const on = !renderer.realStar;
+    renderer.realStar = on;
+    b.setAttribute('aria-pressed', String(on));
+    b.textContent = STAR_BTN[on ? 1 : 0];
+    hideProbe();
+    if (!on) { resetView(); return; }
+    const c = renderer.cam, T = renderer.starView(renderer.slots[0].world);
+    T.yaw += Math.PI * 2 * Math.round((c.yaw - T.yaw) / (Math.PI * 2)); // 가까운 쪽으로 돈다
+    S.viewReset = T;
+    S.idleAt = performance.now() + 45000; // 한동안 자동 회전을 멈춰 별을 볼 시간을 준다
+  }
   function resetView() {
     // 자동 회전으로 여러 바퀴 돈 시점도 가까운 쪽으로 한 번에 돌아오게
     const c = renderer.cam;

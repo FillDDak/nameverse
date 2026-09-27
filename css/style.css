@@ -216,6 +216,7 @@ button { cursor: pointer; }
 .p-lore section { margin: 0 0 16px; }
 .p-lore h4 { margin: 0 0 5px; font-size: 11px; letter-spacing: 0.2em; color: rgba(var(--accent-rgb), 0.95); font-weight: 700; }
 .p-lore p { margin: 0; font-size: 14.5px; line-height: 1.75; color: rgba(238, 241, 255, 0.86); }
+.p-lore .star-btn { margin-top: 10px; }
 
 .p-proverb { margin: 22px 0 22px; padding: 18px 18px 16px; border-left: 2px solid var(--accent); background: rgba(255, 255, 255, 0.03); border-radius: 0 12px 12px 0; }
 .p-proverb p { margin: 0 0 8px; font-size: 17px; font-weight: 600; line-height: 1.5; }

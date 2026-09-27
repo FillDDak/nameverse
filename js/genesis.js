@@ -308,8 +308,14 @@
   ];
 
   /* ───────────── 실제 외계행성 (NASA Exoplanet Archive) ───────────── */
+  // 궤도 위의 시작 위치(실제 값을 모를 때): 행성 이름으로 정해 누구에게나 같다
+  const orbitPhase = (name) => (NV.hash('orbit/' + name)[0] / 4294967296) * Math.PI * 2;
   const EXO = NV.EXO;
   const CB = new Set(EXO.cb || []); // 두 별을 함께 도는 행성
+  /* 오늘의 궤도 위치를 계산할 궤도 요소. 트랜싯(시선속도 행성은 '합') 기준 시각 T0와 그때의 정밀한 주기 Pt가 있으면
+   * 실제 위상을 알 수 있다. 없으면 행성 이름으로 정한 위상(h)을 쓴다. 이심률 e, 근점 인수 w(°), 궤도 경사 i(°) */
+  const orbitEl = (r) => ({ P: r[7], e: r[9] || 0, w: r[29] != null ? r[29] : null, T0: r[28] != null ? r[28] : null,
+    Pt: r[27] != null ? r[27] : null, incl: r[30] != null ? r[30] : null, h: orbitPhase(r[0]) });
   function exoPlanet(i) {
     const r = EXO.rows[i];
     const [method, methodKo] = EXO.methods[r[17]];
@@ -319,6 +325,7 @@
       year: r[16], method, methodKo, facility: EXO.facilities[r[18]], ra: r[19], dec: r[20],
       con: EXO.constellations[r[21]], top: r[22], reason: EXO.reasons[r[23]] || '', esi: r[24],
       insol: r[25] != null ? r[25] : null, smass: r[26] != null ? r[26] : null, hostEst: false,
+      orb: orbitEl(r), sunCon: r[31] != null ? EXO.constellations[r[31]] : null,
     };
     // 미세중력렌즈 행성의 모항성은 빛이 아니라 중력으로만 보여서 온도·반지름이 없다. 대부분 적색왜성이라
     // 질량(없으면 흔한 값 0.4)으로 광도(질량-광도 관계)와 반지름을 어림하고, 온도와 받는 빛의 양을 계산한다
@@ -576,8 +583,6 @@
     }
     return (HOSTS.get(host) || []).filter((k) => EXO.rows[k][0] !== self);
   }
-  // 궤도 위의 시작 위치(실제 값은 알려져 있지 않다): 행성 이름으로 정해 누구에게나 같다
-  const orbitPhase = (name) => (NV.hash('orbit/' + name)[0] / 4294967296) * Math.PI * 2;
   // 하늘에서 본 색: 이웃 행성도 같은 물리 판정으로 고른다 (셰이더 sibColor의 번호:
   // 0 가스, 1 얼음 거인, 2 용암, 3 사막, 4 온화, 5 얼음, 6 대기 없는 암석, 7 금성형, 8 서브넵튠)
   const SIB_KIND = { gas: 0, icegiant: 1, lava: 2, desert: 3, temperate: 4, ocean: 4, glacier: 5, airless: 6, crystal: 6, venus: 7, subneptune: 8 };
@@ -656,7 +661,9 @@
     else if (cls === 'temperate') out.push('생명 가능 영역 안에 있고 크기도 암석 행성 범위라, 표면에 액체 상태의 물이 있을 수 있는 후보로 꼽힙니다.');
     return out.join(' ');
   }
-  function skyText(p) {
+  /* 이 행성에서 본 우리 태양: 행성 방향의 정반대에, 거리로 정해지는 겉보기 등급(태양의 절대 등급 4.83)으로 보인다 */
+  const sunMag = (p) => (p.dist != null ? 4.83 + 5 * Math.log10(p.dist / 3.26156 / 10) : null);
+  function skyText(p, o = {}) {
     const out = [];
     const sc = isPulsar(p) ? null : starClass(p.teff, p.srad);
     if (sc && p.srad != null && p.a != null) {
@@ -666,7 +673,8 @@
         : k < 0.03 ? '너무 작아서 원반은 보이지 않고, 아주 밝은 별처럼 점으로 보입니다'
         : k <= 0.87 ? `지구에서 보는 해의 ${num(k, 2)}배 크기로 작게 보입니다`
           : '지구에서 보는 해와 비슷한 크기로 보입니다';
-      out.push(`이 행성의 하늘에서 모항성 ${josa(p.host, '은/는')} ${sc.desc}이며, ${size}.`);
+      out.push(`이 행성의 하늘에서 모항성 ${josa(p.host, '은/는')} ${sc.desc}이며, ${size}.`
+        + (o.shrunk ? ' 그림에서는 큰 별을 줄여 그렸는데, 아래 버튼으로 실제 크기를 볼 수 있습니다. 별이 클수록 빛이 여러 방향에서 와서 낮과 밤의 경계가 넓게 번집니다.' : ''));
     } else if (sc) {
       out.push(`모항성 ${josa(p.host, '은/는')} ${sc.desc}입니다.`);
     }
@@ -680,6 +688,8 @@
         ? '적색왜성은 표면에서 플레어(갑작스러운 폭발)가 자주 일어나, 가끔 모항성이 순간적으로 밝아집니다. 이 행성에는 대기가 없어 오로라는 생기지 않습니다.'
         : '적색왜성은 표면에서 플레어(갑작스러운 폭발)가 자주 일어납니다. 가끔 모항성이 순간적으로 밝아지고, 뒤이어 행성의 극지방에 오로라가 번집니다(실제로는 몇 시간에서 며칠 뒤이지만 화면에서는 몇 초로 줄였습니다).');
     }
+    // 레일리 산란: 짧은 파장일수록 강하게 흩어진다(λ⁻⁴). 붉은 별의 빛에는 푸른빛이 적어서 하늘이 덜 파랗다
+    if (o.rayleigh && p.teff != null && p.teff < 4800) out.push('하늘빛은 별빛의 색을 따릅니다. 푸른빛을 거의 내지 않는 붉은 별 아래라서, 대기가 흩뜨리는 빛도 지구의 파란 하늘보다 희뿌연 색에 가깝습니다(그림의 대기 빛도 이 계산을 따랐습니다).');
     const pt = periodText(p.per);
     if (pt) out.push(`이곳의 1년은 ${pt}입니다.`);
     if (p.a != null && p.a < 0.1) {
@@ -698,8 +708,17 @@
     if (p.pnum > 1) {
       const sib = siblingRows(p.host, p.name).map((k) => EXO.rows[k][0]);
       out.push(`같은 항성계에서 행성이 ${p.pnum - 1}개 더 발견되었습니다.` + (sib.length && p.a != null
-        ? ` 이 행성의 하늘에는 ${josa(sib.join(', '), '이/가')} 초승달이나 밝은 점으로 떠 있습니다(실제 크기와 궤도로 계산한 위치).`
+        ? ` 이 행성의 하늘에는 ${josa(sib.join(', '), '이/가')} 초승달이나 밝은 점으로 떠 있습니다`
+          + (p.orb.T0 != null && siblingRows(p.host, p.name).every((k) => EXO.rows[k][28] != null)
+            ? '(실제 크기와 궤도, 관측된 트랜싯 시각으로 계산한 오늘의 위치).'
+            : '(실제 크기와 궤도로 계산했지만, 일부 행성은 궤도 위의 현재 위치가 알려져 있지 않아 임의로 정했습니다).')
         : ''));
+    }
+    const m = sunMag(p);
+    if (m != null && p.sunCon) {
+      out.push(`이곳에서 보면 우리 태양은 ${p.sunCon}자리 쪽(지구 하늘의 별자리 기준)에서 ${m.toFixed(1)}등급으로 빛나는 별입니다. `
+        + (m <= 6 ? (m <= 3 ? '맨눈으로도 또렷이 보입니다.' : '어두운 밤하늘에서는 맨눈으로 보입니다.') : '맨눈으로 볼 수 있는 한계(약 6등급)보다 어두워, 망원경이 있어야 보입니다.')
+        + ' 그림 속 하늘에서도 태양과 은하수(가장 밝은 곳은 궁수자리 쪽 은하 중심)를 실제 방향에 두었습니다. 궤도면이 하늘에서 어느 쪽으로 누웠는지는 알 수 없어서, 그 방향만 은하수가 잘 보이도록 골랐습니다.');
     }
     return out.join(' ');
   }
@@ -776,6 +795,27 @@
     else if (atm === 'thin' && v.type !== 1) { v.atmoStr *= 0.35; v.clouds = Math.min(v.clouds, 0.05); }
     v.lightCol = starColor(p.teff).map((c) => 0.45 + 0.55 * c);
     v.lightK = 1; v.starGlow = 1; // 행성을 비추는 빛의 세기, 하늘에 보이는 모항성의 밝기
+    v.atmoUI = v.atmo.slice(); // 화면 강조색은 행성 종류의 색 그대로
+    /* 레일리 산란(질소·산소·수소처럼 맑은 대기): 흩어진 빛 = 별빛 스펙트럼 × λ⁻⁴. 대기 색은 햇빛 아래 기준으로 만들었으므로
+     * 세 파장(610·550·465nm)에서 이 별과 태양의 흑체 복사 비율을 곱한다. 셰이더가 이미 곱하는 조명색(uLightCol)만큼은 나눈다.
+     * 붉은 별 아래에서는 푸른빛이 모자라 하늘이 희뿌옇게 된다. 곱하기만 하면 원래 색의 치우침(청록)이 남아 초록빛이 되므로,
+     * 채도도 순수한 레일리 산란색의 채도 비율(이 별 ÷ 태양)만큼 줄인다 (3000K에서는 거의 무채색) */
+    v.rayleigh = ['ocean', 'garden', 'glacier', 'icegiant'].includes(biome.id) && !v.airless && p.teff != null && !isPulsar(p);
+    if (v.rayleigh) {
+      const K = [23587, 26160, 30942], LAM = [610, 550, 465], sunL = starColor(5772).map((c) => 0.45 + 0.55 * c);
+      const T = Math.max(2300, p.teff);
+      // 레일리 산란색: 흑체 복사 B(λ) ∝ λ⁻⁵/(e^(hc/λkT) − 1) × λ⁻⁴
+      const ray = (t) => K.map((k, i) => Math.pow(465 / LAM[i], 9) / Math.expm1(k / t));
+      const sat = (c) => 1 - Math.min(...c) / Math.max(...c);
+      const rs = ray(T), r0 = ray(5772);
+      const w = rs.map((x, i) => (x / r0[i]) / (v.lightCol[i] / sunL[i]));
+      const mx = Math.max(...v.atmo);
+      let c = v.atmo.map((x, i) => x * w[i] / w[0]);
+      const gray = 0.3 * c[0] + 0.59 * c[1] + 0.11 * c[2], ks = Math.min(1.2, sat(rs) / sat(r0));
+      c = c.map((x) => gray + (x - gray) * ks);
+      const cm = Math.max(...c);
+      v.atmo = c.map((x) => Math.max(0, x) * mx / cm);
+    }
     if (isPulsar(p)) {
       // 펄서는 보이는 빛을 거의 내지 않는다: 하늘에는 희미한 푸르스름한 점 하나, 행성은 어둡게(그래도 보이도록 밝게 보정)
       v.lightCol = starColor(12000).map((c) => 0.45 + 0.55 * c);
@@ -790,6 +830,7 @@
     // 가까이 붙은 거대한 별도 '아주 멀리 있는 광원'으로 느껴지도록 큰 쪽은 눌러서 그린다 (태양 크기는 그대로).
     // 펄서(중성자별)는 지름이 수십 km라 점으로 그린다
     const realAng = p.srad != null && p.a != null ? 0.00465047 * p.srad / p.a : 0.0047;
+    v.starAngReal = isPulsar(p) ? 0 : realAng; // '실제 크기로 보기'와 낮·밤 경계의 번짐(별 원반의 크기만큼)에 쓴다
     v.starAng = isPulsar(p) ? 0.0005
       : Math.max(0.0025, realAng <= 0.006 ? realAng : 0.006 + 0.003 * Math.log(1 + (realAng - 0.006) / 0.003));
     v.seedOff = [rv.range(-50, 50), rv.range(-50, 50), rv.range(-50, 50)];
@@ -874,11 +915,11 @@
       }
     }
     // 하늘에 뜨는 이웃 행성: 실제 궤도 반지름(없으면 공전 주기 비율로 케플러 제3법칙)과 반지름
-    v.orbit = p.a != null ? { a: p.a, P: p.per, h: orbitPhase(p.name) } : null;
+    v.orbit = p.a != null ? Object.assign({ a: p.a }, p.orb) : null;
     v.siblings = !v.orbit ? [] : siblingRows(p.host, p.name).map((k) => {
       const r = EXO.rows[k];
       const a = r[8] != null ? r[8] : r[7] != null && p.per != null ? p.a * Math.pow(r[7] / p.per, 2 / 3) : null;
-      return a != null && r[3] != null ? { name: r[0], a, rade: r[3], P: r[7], h: orbitPhase(r[0]), kind: siblingKind(k) } : null;
+      return a != null && r[3] != null ? Object.assign({ name: r[0], a, rade: r[3], kind: siblingKind(k) }, orbitEl(r)) : null;
     }).filter(Boolean).slice(0, 7);
     // 여러 별로 이루어진 항성계. 데이터에는 별의 개수만 있고 동반성의 거리·밝기는 없어서 전형적인 값으로 추정한다
     // (행성 모습의 난수를 건드리지 않도록 모항성 이름으로 만든 별도 난수를 쓴다)
@@ -902,6 +943,20 @@
       }
     }
     v.cloudSpeed = rv.range(0.008, 0.02);
+    /* 하늘에 둘 우리 태양 (renderer가 궤도 위치에 맞춰 방향을 정한다).
+     *   eq: 이 항성계에서 태양 쪽 방향(적도 좌표 단위 벡터), mag: 겉보기 등급
+     *   트랜싯(또는 합) 시각을 아는 행성은 그 순간 행성이 별과 태양 사이에 있으므로 태양이 궤도 위 90° 경도에 있다.
+     *   모르면 방향을 이름으로 정한다 (궤도 경사가 무작위일 때처럼 sin(고도)가 고르게) */
+    {
+      const ra = p.ra * Math.PI / 180, de = p.dec * Math.PI / 180, hs = NV.hash('sun/' + p.name);
+      const known = p.orb.T0 != null;
+      v.sun = {
+        eq: [-Math.cos(de) * Math.cos(ra), -Math.cos(de) * Math.sin(ra), -Math.sin(de)],
+        mag: sunMag(p),
+        lon: known ? Math.PI / 2 : (hs[0] / 4294967296) * Math.PI * 2,
+        lat: known && p.orb.incl != null ? (90 - p.orb.incl) * Math.PI / 180 : Math.asin((hs[1] / 4294967296) * 2 - 1) * (known ? 0.2 : 1),
+      };
+    }
 
     // 고리와 위성 (외계행성의 고리·위성은 아직 관측된 적이 없어서 상상으로 그린다)
     const ringChance = { gas: 0.75, icegiant: 0.6, crystal: 0.5 }[biome.id] || 0.22;
@@ -973,7 +1028,7 @@
     const lore = [
       { title: '발견', text: discovery, real: true },
       { title: '환경', text: environment(p), real: true },
-      { title: '하늘', text: skyText(p) || '모항성에 대한 자료가 아직 부족합니다.', real: true },
+      { title: '하늘', text: skyText(p, { rayleigh: v.rayleigh, shrunk: v.starAngReal > v.starAng * 1.3 }) || '모항성에 대한 자료가 아직 부족합니다.', real: true, sky: true },
       { title: '풍경', text: `${landSentences.join(' ')} ${moonLine}` },
       { title: '생명', text: lifeText },
       { title: '현상', text: phenomenon },
@@ -1027,7 +1082,7 @@
       bday: bday ? birthdayInfo(exoIndex, bday.n, bday.date) : null,
       biome: { id: biome.id, name: biome.name, cat: biome.cat },
       rarity, visual: v, stats, lore, proverb, tags, role, constellation: p.con, coords: { ra: raText(p.ra), dec: decText(p.dec) },
-      moonNames, music, accent: toCss(v.atmo), accentRgb: v.atmo,
+      moonNames, music, accent: toCss(v.atmoUI), accentRgb: v.atmoUI,
     };
   }
 

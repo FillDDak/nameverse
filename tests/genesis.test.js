@@ -6,7 +6,7 @@ const vm = require('vm');
 const ctx = { window: {}, console, Math, JSON, String, Array, Object, Number };
 ctx.window = ctx;
 vm.createContext(ctx);
-for (const f of ['seed.js', 'exoplanets.js', 'genesis.js', 'surface.js']) {
+for (const f of ['seed.js', 'exoplanets.js', 'genesis.js', 'surface.js', 'planet-gl.js']) {
   vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'js', f), 'utf8'), ctx, { filename: f });
 }
 const NV = ctx.NV;
@@ -151,6 +151,28 @@ for (let i = 0; i < E.rows.length; i += 3) {
   const w = NV.genesis('x', i), pr = NV.probe(w, pdir(), pdir());
   const m = /(?:기온|수온) 약 (-?\d+)°C/.exec(pr.fact), t = m && +m[1];
   if (t != null && ((pr.kind === 'coast' || pr.kind === 'deep') && (t < -2 || t > 100) || pr.kind === 'ice' && t > 5)) { assert(false, `${w.planet}: ${pr.label} ${pr.fact}`); break; }
+}
+
+// 하늘: 이 행성에서 본 태양 (프록시마 켄타우리에서 태양은 카시오페이아자리의 0.4등급 별)
+{
+  const w = at('Proxima Cen b');
+  assert(Math.abs(w.visual.sun.mag - 0.4) < 0.1 && /카시오페이아자리 쪽/.test(w.lore.find((l) => l.sky).text), 'Proxima Cen b: 태양 0.4등급, 카시오페이아자리');
+  // 트랜싯 순간 태양은 모항성 반대쪽(궤도 경사만큼 벗어남), 1/4 주기 뒤에는 옆쪽
+  const PR = NV.PlanetRenderer.prototype, L = NV.LIGHT;
+  for (const n of ['TRAPPIST-1 f', 'HD 189733 b']) {
+    const v = at(n).visual, self = { skyQ: new WeakMap() };
+    const sunDot = (k) => { const s = PR._sky.call(self, v, v.orbit.T0 - 2440587.5 + k * v.orbit.Pt), d = s.toW(v.sun.eq); return -(d[0] * L[0] + d[1] * L[1] + d[2] * L[2]); };
+    const want = Math.sin(v.orbit.incl * Math.PI / 180);
+    assert(Math.abs(sunDot(0) - want) < 1e-3 && Math.abs(sunDot(57) - want) < 1e-3 && Math.abs(sunDot(0.25)) < 0.02, `${n}: 트랜싯 시각의 태양 방향`);
+  }
+  // 레일리 산란: 붉은 별 아래 맑은 대기는 거의 무채색, 태양 같은 별 아래는 그대로
+  const satOf = (c) => 1 - Math.min(...c) / Math.max(...c);
+  for (let i = 0; i < E.rows.length; i++) {
+    const w = NV.genesis('x', i), v = w.visual;
+    if (!v.rayleigh) continue;
+    if (E.rows[i][12] != null && E.rows[i][12] < 3300 && satOf(v.atmo) > 0.2) { assert(false, `${w.planet}: 적색왜성 아래 하늘색 채도 ${satOf(v.atmo).toFixed(2)}`); break; }
+    if (Math.abs(E.rows[i][12] - 5772) < 150 && v.atmo.some((x, k) => Math.abs(x - v.atmoUI[k]) > 0.03)) { assert(false, `${w.planet}: 태양 같은 별인데 하늘색이 바뀜`); break; }
+  }
 }
 
 console.log('생물군계 분포:', counts);

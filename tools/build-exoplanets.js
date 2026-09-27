@@ -10,12 +10,12 @@ const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
 const FILE = path.join(__dirname, '..', 'js', 'exoplanets.js');
-const BASE_COLS = 25; // 처음부터 있던 열 수 (이름 ~ 지구유사도). 그 뒤는 덧붙인 열: 받는 빛의 양, 모항성 질량
-const EXTRA = 'pl_name,pl_insol,st_mass';
+const BASE_COLS = 25; // 처음부터 있던 열 수 (이름 ~ 지구유사도). 그 뒤는 덧붙인 열 (extraCols)
+const EXTRA = 'pl_name,pl_insol,st_mass,pl_orbper,pl_tranmid,pl_orblper,pl_orbincl';
 
 const TAP = 'https://exoplanetarchive.ipac.caltech.edu/TAP/sync';
 const COLS = 'pl_name,hostname,sy_dist,pl_rade,pl_bmasse,pl_bmassprov,pl_orbper,pl_orbsmax,pl_orbeccen,pl_eqt,pl_insol,'
-  + 'st_teff,st_rad,st_mass,sy_snum,sy_pnum,disc_year,discoverymethod,disc_facility,ra,dec,pl_controv_flag';
+  + 'st_teff,st_rad,st_mass,sy_snum,sy_pnum,disc_year,discoverymethod,disc_facility,ra,dec,pl_controv_flag,pl_tranmid,pl_orblper,pl_orbincl';
 // IAU 별자리 경계 (Roman 1987, B1875 좌표계)
 const BOUNDS = 'https://cdsarc.cds.unistra.fr/ftp/VI/42/data.dat';
 
@@ -128,14 +128,26 @@ function rarityScore(p) {
 
 const g = (v, d = 3) => (v == null || !Number.isFinite(v) ? null : Number(v.toPrecision(d)));
 
-/* 덧붙인 열의 값. r: NASA 응답의 한 행(없으면 이름이 바뀌었거나 빠진 행성), row: 목록의 한 행.
- * 받는 빛의 양(지구 = 1)이 비어 있으면 모항성 온도·반지름과 궤도로 계산한다 */
-function extraCols(r, row) {
+/* 덧붙인 열의 값. r: NASA 응답의 한 행(없으면 이름이 바뀌었거나 빠진 행성), row: 목록의 한 행, conIdx: 별자리 약자 → 번호.
+ *   받는 빛의 양(지구 = 1): 비어 있으면 모항성 온도·반지름과 궤도로 계산한다
+ *   모항성 질량(태양 = 1)
+ *   트랜싯 기준 시각(BJD)과 그때 쓸 정밀한 공전 주기(일): 오늘의 실제 궤도 위치를 계산한다. 주기는 앞 열(유효숫자 4자리)로는
+ *     몇 년만 지나도 위치가 크게 어긋나서 NASA 값을 그대로 둔다. 트랜싯 시각이 없으면 둘 다 빈 값
+ *   근점 인수 ω(°), 궤도 경사 i(°)
+ *   이 행성에서 본 우리 태양의 별자리: 행성 방향의 정반대(지구 하늘의 별자리 경계로) */
+function extraCols(r, row, conIdx) {
   let insol = r ? num(r.pl_insol) : null;
   const teff = row[12], srad = row[13], a = row[8];
   if (insol == null && teff != null && srad != null && a != null) insol = srad ** 2 * (teff / 5772) ** 4 / a ** 2;
-  return [g(insol), r ? g(num(r.st_mass)) : null];
+  const t0 = r ? num(r.pl_tranmid) : null;
+  const ra = row[19], dec = row[20];
+  return [g(insol), r ? g(num(r.st_mass)) : null, t0 != null ? num(r.pl_orbper) : null, t0,
+    r ? g(num(r.pl_orblper)) : null, r && t0 != null ? g(num(r.pl_orbincl), 4) : null, conIdx((ra + 180) % 360, -dec)];
 }
+const fetchBounds = async () => (await (await fetch(BOUNDS)).text()).trim().split('\n').map((l) => {
+  const [ra0, ra1, dec, con] = l.trim().split(/\s+/);
+  return { ra0: +ra0, ra1: +ra1, dec: +dec, con };
+});
 
 function writeData(d) {
   const out = `/* NAMEVERSE — NASA Exoplanet Archive 확인된 외계행성 (${d.version} 기준, ${d.rows.length}개)
@@ -143,13 +155,14 @@ function writeData(d) {
  * 행: [이름, 모항성, 거리(광년), 반지름(지구=1), 질량(지구=1), 질량구분(0 측정·1 최소·2 추정), 반지름추정,
  *      공전주기(일), 궤도반지름(AU), 이심률, 평형온도(K), 온도추정, 항성온도(K), 항성반지름(태양=1), 별 수, 행성 수,
  *      발견연도, 발견방법, 발견시설, 적경(°), 적위(°), 별자리, 희귀도 상위%, 희귀 이유, 지구유사도,
- *      받는 빛의 양(지구=1), 모항성 질량(태양=1)] */
+ *      받는 빛의 양(지구=1), 모항성 질량(태양=1), 정밀한 공전주기(일), 트랜싯 기준 시각(BJD), 근점 인수(°), 궤도 경사(°),
+ *      이 행성에서 본 태양의 별자리] */
 (function () {
   'use strict';
   window.NV = window.NV || {};
   window.NV.EXO = {
     version: '${d.version}',${d.extended ? `
-    extended: '${d.extended}', // 마지막 두 열(받는 빛의 양, 모항성 질량)을 덧붙인 날 (--append)` : ''}
+    extended: '${d.extended}', // 받는 빛의 양 이후의 열을 덧붙인 날 (--append)` : ''}
     source: 'NASA Exoplanet Archive (Planetary Systems Composite Parameters)',
     methods: ${JSON.stringify(d.methods)},
     facilities: ${JSON.stringify(d.facilities)},
@@ -167,7 +180,8 @@ ${d.rows.map((r) => '      ' + JSON.stringify(r)).join(',\n')},
   return out;
 }
 
-// 행과 순서, 기존 값은 그대로 두고 덧붙인 열만 채운다
+// 행과 순서, 기존 값은 그대로 두고 덧붙인 열만 채운다. 이미 덧붙여 둔 열도 그대로 둔다
+// (새 값으로 바꾸면 그 값으로 고른 행성의 모습이 달라진다). 새로 생긴 열만 채운다
 async function append() {
   const ctx = { window: {} };
   vm.createContext(ctx);
@@ -178,14 +192,18 @@ async function append() {
   const csv = await (await fetch(url)).text();
   if (!csv.startsWith('pl_name')) throw new Error('예상하지 못한 응답: ' + csv.slice(0, 300));
   const byName = new Map(parseCsv(csv).map((r) => [r.pl_name, r]));
+  const bounds = await fetchBounds();
+  const cons = E.constellations.slice();
+  const conIdx = (ra, dec) => { const k = CON_KO[constellation(bounds, ra, dec)]; let i = cons.indexOf(k); if (i < 0) { i = cons.length; cons.push(k); } return i; };
   let missing = 0;
   const rows = E.rows.map((row) => {
     const r = byName.get(row[0]);
     if (!r) missing++;
-    return row.slice(0, BASE_COLS).concat(extraCols(r, row));
+    const fresh = extraCols(r, row, conIdx);
+    return row.slice(0, BASE_COLS).concat(fresh.map((x, i) => (row.length > BASE_COLS + i ? row[BASE_COLS + i] : x)));
   });
   writeData({ version: E.version, extended: new Date().toISOString().slice(0, 10), methods: E.methods, facilities: E.facilities,
-    constellations: E.constellations, reasons: E.reasons, cb: E.cb, rows });
+    constellations: cons, reasons: E.reasons, cb: E.cb, rows });
   console.log(`✓ ${rows.length}개 행에 열 추가 (NASA 목록에서 찾지 못한 행성 ${missing}개는 빈 값)`);
 }
 
@@ -195,10 +213,7 @@ async function main() {
   console.log('NASA Exoplanet Archive에서 받는 중…');
   const csv = await (await fetch(url)).text();
   if (!csv.startsWith('pl_name')) throw new Error('예상하지 못한 응답: ' + csv.slice(0, 300));
-  const bounds = (await (await fetch(BOUNDS)).text()).trim().split('\n').map((l) => {
-    const [ra0, ra1, dec, con] = l.trim().split(/\s+/);
-    return { ra0: +ra0, ra1: +ra1, dec: +dec, con };
-  });
+  const bounds = await fetchBounds();
 
   const methods = [], facilities = [], cons = [];
   const idx = (arr, v) => { let i = arr.indexOf(v); if (i < 0) { i = arr.length; arr.push(v); } return i; };
@@ -261,7 +276,7 @@ async function main() {
     .map((l) => l.trim().replace(/^"|"$/g, '')).filter((n) => names.has(n)).sort();
   const today = new Date().toISOString().slice(0, 10);
   const byName = new Map(parseCsv(csv).map((r) => [r.pl_name, r]));
-  rows.forEach((row) => row.push(...extraCols(byName.get(row[0]), row)));
+  rows.forEach((row) => row.push(...extraCols(byName.get(row[0]), row, (ra, dec) => idx(cons, constellation(bounds, ra, dec)))));
   const out = writeData({ version: today, methods: methods.map((m) => [m, METHOD_KO[m] || m]),
     facilities, constellations: cons.map((c) => CON_KO[c] || c), reasons: REASONS, cb, rows });
   const unknownCon = cons.filter((c) => !CON_KO[c]);

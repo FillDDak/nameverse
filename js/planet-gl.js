@@ -32,7 +32,8 @@ uniform vec4 uSib[7], uSibL[7]; // 이웃 행성: 방향(시점 좌표) + 보이
 uniform vec4 uStar2; uniform vec3 uStar2Col; // 두 번째 해: 방향(시점 좌표) + 보이는 반지름
 uniform vec4 uComp[2], uCompC[2];            // 멀리 떨어진 동반성: 방향 + 밝기, 색
 uniform vec2 uFlare; uniform vec3 uAurora; // 플레어: x 모항성 밝아짐, y 오로라 세기 / 오로라 색
-uniform vec3 uLock; // 조석 고정: x 여부, y 얼음 경계(별을 마주한 정도 cos θ가 이보다 작으면 얼음)
+uniform vec3 uLock; // 조석 고정: x 여부, y 얼음 경계(별을 마주한 정도 cos θ가 이보다 작으면 얼음), z 모항성 원반의 실제 겉보기 반지름의 sin
+uniform vec3 uGal, uGalC; uniform vec4 uSun; // 은하 북극·은하 중심 방향(월드 좌표), 우리 태양: 방향(시점 좌표) + 밝기
 uniform vec4 uThP; uniform vec3 uThA, uHot; // 열복사 (genesis.js): 온도 분포 매개변수와 모드(w), 채널별 밝기 계수, 가장 뜨거운 곳의 방향
 uniform float uCrater; // 크레이터 (대기 없는 암석 행성)
 uniform vec4 uCmH, uCmI, uCmD; uniform vec3 uCmCol; // 혜성: 머리(xy, 크기, 밝기), 이온 꼬리 끝(xy, 범위, 씨앗), 먼지 꼬리 베지어(조절점, 끝)
@@ -375,8 +376,12 @@ vec3 shadePlanet(vec3 n, vec3 rd, vec3 p, float px){
 
   float sh = ringShadow(p);
   for(int i = 0; i < 3; i++) sh *= moonShadow(p, uMoon[i]);
-  float term = smoothstep(-0.1, 0.15, ndl);
-  float dl = max(dot(nb, uLight), 0.0)*term*sh;
+  // 낮·밤 경계: 별은 점이 아니라 원반(겉보기 반지름 α)이라, 별의 일부만 지평선 위에 있는 곳(|cos| < sin α)은 반그늘이다.
+  // 그 부분의 밝기는 구 광원의 근사식 (cos + sin α)²/(4 sin α). 가까이 붙은 큰 별일수록 경계가 넓게 번진다
+  float sa = uLock.z;
+  float term = smoothstep(-0.1 - sa, 0.15 + 0.5*sa, ndl);
+  float nl0 = dot(nb, uLight);
+  float dl = (nl0 >= sa ? nl0 : nl0 > -sa ? (nl0 + sa)*(nl0 + sa)/(4.0*sa) : 0.0)*term*sh;
   vec3 lightCol = uLightCol*uLightK*(1.0 + 0.5*uFlare.x); // 플레어가 일어나면 행성도 잠깐 더 밝게 비춘다
   vec3 c = base*(dl*1.15 + 0.015)*lightCol*(1.0 - cloud*0.3);
   float mu = max(dot(n, -rd), 0.0);
@@ -467,11 +472,16 @@ vec3 starLayer(vec3 d, float sc, float ap, float dens, float gain){
   return tint*exp(-a*a/(w*w))*(0.1 + 2.2*b)*gain;
 }
 vec3 skyColor(vec3 d, float ap){
-  float gl = dot(d, normalize(vec3(0.25, 0.92, 0.3)));
-  float band = exp(-gl*gl/0.018);
+  // 은하수: 실제 은하면을 따라(uGal: 은하 북극). 은하 중심(uGalC, 궁수자리) 쪽이 가장 밝고 두꺼우며 누런빛이고,
+  // 반대쪽(마차부자리)은 희미하다. 가운데를 가르는 어두운 먼지 띠(대균열)는 중심 쪽 절반에서 뚜렷하다
+  float gl = dot(d, uGal), cen = dot(d, uGalC);
+  float bulge = exp(-(1.0 - cen)*7.0);
+  float band = exp(-gl*gl/(0.018 + 0.035*bulge));
   float cl = 0.5 + 0.5*fbm3(d*3.2 + 7.0);
   float dust = smoothstep(0.35, 0.75, 0.5 + 0.5*fbm3(d*7.0 + 3.0));
-  vec3 mw = mix(vec3(0.5, 0.48, 0.62), vec3(0.78, 0.64, 0.5), cl)*band*(0.3 + 0.7*cl)*(1.0 - 0.65*dust)*0.06;
+  float rift = 1.0 - 0.6*exp(-(gl + 0.012)*(gl + 0.012)/0.0012)*smoothstep(-0.3, 0.6, cen);
+  vec3 tone = mix(mix(vec3(0.5, 0.48, 0.62), vec3(0.78, 0.64, 0.5), cl), vec3(0.95, 0.74, 0.5), bulge*0.6);
+  vec3 mw = tone*band*(0.3 + 0.7*cl)*(1.0 - 0.65*dust)*rift*(0.7 + 0.5*cen + 1.4*bulge)*0.06;
   // 무한히 먼 배경 별 두 겹(하늘 전체) + 은하수 띠의 별 먼지. 가까운 또렷한 별은 2D 별밭이 그린다
   return starLayer(d, 120.0, ap, 0.09, 0.5) + starLayer(d, 240.0, ap, 0.07 + band*0.2, 0.3) + starLayer(d, 330.0, ap, band*0.35, 0.25) + mw;
 }
@@ -620,6 +630,11 @@ void main(){
     alpha = min(1.0, max(col.r, max(col.g, col.b)));
   }
   vec3 sky = skyColor(uView*rdS, apS) + comet(uv, apS) + siblings(rdS, apS) + companions(rdS, apS);
+  if(uSun.w > 0.0){
+    // 우리 태양: 노란빛이 도는 흰 별 하나 (겉보기 등급으로 정한 밝기)
+    float x = length(rdS - uSun.xyz)/apS;
+    sky += vec3(1.0, 0.94, 0.84)*uSun.w*(exp(-x*x/1.3)*1.8 + 0.06*pow(1.0 + x/2.5, -2.2));
+  }
   col += sky*(1.0 - alpha);
   alpha += min(1.0, max(sky.r, max(sky.g, sky.b)))*(1.0 - alpha);
   // 두 번째 해와 동반성의 빛번짐
@@ -708,7 +723,7 @@ void main(){
   col += coreC*(1.0 - alpha);
   alpha += coreA*(1.0 - alpha);
   // 넓게 번지는 빛과 회절 빛줄기는 렌즈에서 생기므로 행성 위에도 겹친다
-  vec3 flare = starFlare(uLight, r0*(1.0 + 2.5*uFlare.x), hue, uv, ro, (1.0 + 2.0*uFlare.x)*uStarGlow);
+  vec3 flare = starFlare(uLight, min(r0, 0.03)*(1.0 + 2.5*uFlare.x), hue, uv, ro, (1.0 + 2.0*uFlare.x)*uStarGlow);
   col += flare*(1.0 - col);
   alpha = max(alpha, min(1.0, max(flare.r, max(flare.g, flare.b))));
 
@@ -742,6 +757,29 @@ void main(){
   };
 
   const LIGHT = norm([-0.8, 0.38, 0.62]);
+  const DEG = Math.PI / 180;
+  const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+  const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+  const eqVec = (ra, dec) => [Math.cos(dec * DEG) * Math.cos(ra * DEG), Math.cos(dec * DEG) * Math.sin(ra * DEG), Math.sin(dec * DEG)];
+  const GAL_N = eqVec(192.85948, 27.12825), GAL_C = eqVec(266.40499, -28.93617); // 은하 북극, 은하 중심 (적도 좌표, J2000)
+  const JD_UNIX = 2440587.5; // 1970-01-01의 율리우스일
+  const MW_VIEW = norm([0.25, 0.92, 0.3]); // 은하수가 가장 보기 좋게 지나가는 방향의 은하 북극 (시점 좌표)
+
+  /* 오늘 궤도 위의 위치 (케플러 방정식). o: genesis.js orbitEl + 궤도 긴반지름 a.
+   * 트랜싯 시각 T0를 알면 그 순간 행성은 별과 관측자(태양) 사이, 즉 궤도 경도(ν + ω) 90°에 있다.
+   * 모르면 이름으로 정한 위상. lon: 궤도면 위 경도, r: 별까지 거리(AU) */
+  function kepler(o, days) {
+    const e = Math.min(0.95, o.e || 0), w = o.w != null ? o.w * DEG : Math.PI / 2;
+    let M;
+    if (o.T0 != null && o.Pt) {
+      const nt = Math.PI / 2 - w, Et = 2 * Math.atan(Math.sqrt((1 - e) / (1 + e)) * Math.tan(nt / 2));
+      M = Et - e * Math.sin(Et) + 2 * Math.PI * (((days + JD_UNIX - o.T0) / o.Pt) % 1);
+    } else M = o.h + (o.P ? 2 * Math.PI * ((days / o.P) % 1) : 0);
+    let E = M;
+    for (let i = 0; i < 8; i++) E -= (E - e * Math.sin(E) - M) / (1 - e * Math.cos(E));
+    const nu = 2 * Math.atan2(Math.sqrt(1 + e) * Math.sin(E / 2), Math.sqrt(1 - e) * Math.cos(E / 2));
+    return { lon: nu + w, r: o.a * (1 - e * Math.cos(E)) };
+  }
   const CAM = 6.0;
   // 확대/축소는 카메라가 실제로 다가가고 물러나는 것(달리 줌). 별 공간에서는 그 이동을 STAR_DOLLY배로 키워
   // 가까운 별은 크게, 먼 별은 조금, 은하수와 모항성(무한히 멂)은 전혀 움직이지 않는 연속된 깊이감을 만든다
@@ -781,6 +819,7 @@ void main(){
       gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
       gl.enable(gl.SCISSOR_TEST);
       this.progs = new Map(); // 변형 이름 → { p, vs, fs, u(준비되면 유니폼 위치), failed }
+      this.skyQ = new WeakMap(); // 행성 → 하늘(적도 좌표)을 궤도면 좌표로 돌리는 행렬
       this.par = gl.getExtension('KHR_parallel_shader_compile');
     }
 
@@ -843,6 +882,7 @@ void main(){
     // 셰이더가 아직 컴파일 중이면 나타나는 연출은 처음 그려지는 순간부터 시작한다 (_draw의 pending)
     setWorlds(worlds, { instant = false, grow = true } = {}) {
       const now = performance.now() / 1000;
+      this.realStar = false; // 모항성을 실제 크기로 보기 (행성 화면의 버튼)
       this.slots = worlds.map((w) => ({
         world: w,
         appearAt: instant || !grow ? now - 10 : now,
@@ -947,12 +987,15 @@ void main(){
       const st = this._state(slot, time, vp);
       gl.viewport(vp.x, vp.y, vp.w, vp.h);
       gl.scissor(vp.x, vp.y, vp.w, vp.h);
-      // 이웃 행성 (행성 화면에서만)
-      const sib = meteors ? this._siblings(v, st.V) : [];
+      // 하늘의 방향(은하수·태양)과 이웃 행성 (행성 화면에서만)
+      const sky = meteors ? this._sky(v, Date.now() / 864e5) : null;
+      const sib = sky ? this._siblings(v, st.V, sky) : [];
+      const sunW = sky && v.sun && v.sun.mag != null ? sky.toW(v.sun.eq) : null;
       // 여러 별로 이루어진 항성계: 두 번째 해, 멀리 떨어진 동반성
       const s2 = meteors ? this._star2(v, st.V) : null;
       const comps = meteors ? (v.companions || []).map((c) => ({ name: '동반성', dir: M.vec(st.V, c.dir), rho: 0, c })) : [];
-      this.sibLabels = meteors ? sib.concat(comps) : null;
+      this.sibLabels = meteors ? sib.concat(comps, sunW ? [{ name: `태양 ${v.sun.mag.toFixed(1)}등급`, dir: M.vec(st.V, sunW), rho: 0 }] : []) : null;
+      const starR = this.starAngle(v);
       // 행성 셰이더와 하늘 셰이더에 같은 유니폼을 올린다 (각 셰이더에 없는 유니폼은 건너뛴다)
       const apply = (u) => {
       const f1 = (n, x) => u[n] && gl.uniform1f(u[n], x);
@@ -966,7 +1009,10 @@ void main(){
       // 변형에 따라 빠진 유니폼(가스 행성의 구름 회전, 하늘이 없는 화면의 시점)은 위치가 없다
       gl.uniformMatrix3fv(u.uRot || null, false, new Float32Array(st.R));
       gl.uniformMatrix3fv(u.uCloudRot || null, false, new Float32Array(st.RC));
-      f3('uLight', st.light); f1('uStarR', v.starAng || 0.006);
+      f3('uLight', st.light); f1('uStarR', starR);
+      if (sky) { f3('uGal', sky.toW(GAL_N)); f3('uGalC', sky.toW(GAL_C)); }
+      // 겉보기 등급 m → 밝기: 6등급(맨눈 한계)이 가장 희미한 배경 별 정도가 되도록
+      f4('uSun', sunW ? [...M.vec(st.V, sunW), Math.min(2.2, 0.3 * Math.pow(10, -0.4 * (v.sun.mag - 4)))] : [0, 0, 1, 0]);
       f1('uSkyFocal', st.skyFocal);
       gl.uniformMatrix3fv(u.uView || null, false, new Float32Array(st.V)); f3('uLightCol', v.lightCol || [1, 0.96, 0.9]); f3('uSeedOff', v.seedOff);
       f1('uLightK', v.lightK != null ? v.lightK : 1); f1('uStarGlow', v.starGlow != null ? v.starGlow : 1);
@@ -975,7 +1021,7 @@ void main(){
         f3('u' + k, v[k.charAt(0).toLowerCase() + k.slice(1)] || [0, 0, 0]);
       });
       f1('uSea', v.sea); f1('uClouds', v.clouds); f1('uIce', v.ice); f1('uCity', v.city);
-      f3('uLock', [v.locked ? 1 : 0, v.lockIce != null ? v.lockIce : -2, 0]);
+      f3('uLock', [v.locked ? 1 : 0, v.lockIce != null ? v.lockIce : -2, Math.sin(Math.min(v.starAngReal || 0, 1.3))]);
       // 대기가 없으면 플레어가 일어나도 오로라가 생기지 않는다
       f2('uFlare', meteors && this.flareNow ? [this.flareNow[0], v.aurora === false ? 0 : this.flareNow[1]] : [0, 0]); f3('uAurora', v.auroraCol || [0.35, 1, 0.55]);
       f4('uThP', (v.thermP || [0, 0, 0]).concat(v.thermMode || 0)); f3('uThA', v.thermA || [0, 0, 0]);
@@ -1040,24 +1086,76 @@ void main(){
       const u2 = [N[1] * -L[2] - N[2] * -L[1], N[2] * -L[0] - N[0] * -L[2], N[0] * -L[1] - N[1] * -L[0]];
       const dl = s.sep * Math.sin((Date.now() / 864e5 / s.P) * Math.PI * 2 + s.h);
       const dir = norm([L[0] * Math.cos(dl) + u2[0] * Math.sin(dl), L[1] * Math.cos(dl) + u2[1] * Math.sin(dl), L[2] * Math.cos(dl) + u2[2] * Math.sin(dl)]);
-      return [...M.vec(V, dir), (v.starAng || 0.006) * s.size];
+      return [...M.vec(V, dir), this.starAngle(v) * s.size];
     }
 
-    /* 이웃 행성의 위치: 모든 행성이 같은 평면에서 원 궤도를 돈다고 보고, 오늘 날짜의 궤도 위치로 계산한다.
-     * 모항성을 원점, 이 행성을 모항성 반대쪽(-LIGHT) 방향에 둔다. 결과는 시점 좌표의 방향과 보이는 반지름 */
-    _siblings(v, V) {
+    // 하늘에 그리는 모항성의 겉보기 반지름: 보통은 genesis.js가 줄인 크기, '실제 크기로 보기'에서는 실제 크기
+    starAngle(v) {
+      const a = v.starAng || 0.006;
+      return this.realStar && v.starAngReal > a ? Math.min(v.starAngReal, 1.0) : a;
+    }
+
+    /* 하늘의 방향. 월드 좌표에서 모항성은 늘 LIGHT 쪽, 이 행성의 궤도면은 LIGHT를 품고 법선 N이 위쪽에 가깝다.
+     * 궤도면 좌표(경도 λ, 고도)는 이 행성의 오늘 경도 λ₀가 u1(= 별 반대쪽)에 오도록 돌린다.
+     * 적도 좌표(별자리·은하수·태양)는 태양 방향(v.sun: 트랜싯 행성은 경도 90°·고도 90°−i)을 맞추고, 남은 한 가지 자유도
+     * (궤도면이 하늘에서 누운 방향, 관측으로 알 수 없다)는 은하수가 잘 보이도록(은하 북극이 MW_VIEW에 가깝게: 행성 뒤를 비스듬히 지나며 자동 회전하는 동안 늘 보인다. 되도록 은하 중심 쪽) 고른다.
+     * 행성이 공전하면 별자리가 궤도 주기에 맞춰 천천히 돈다 */
+    _sky(v, days) {
+      const o = v.orbit || { a: 1, e: 0, w: null, T0: null, Pt: null, P: null, h: 0 };
+      const self = kepler(o, days);
+      const L = LIGHT, k = L[1];
+      const N = norm([-L[0] * k, 1 - L[1] * k, -L[2] * k]);
+      const u1 = [-L[0], -L[1], -L[2]], u2 = cross(N, u1);
+      const dirW = (lon, lat = 0) => {
+        const c = Math.cos(lon - self.lon) * Math.cos(lat), s = Math.sin(lon - self.lon) * Math.cos(lat), z = Math.sin(lat);
+        return [u1[0] * c + u2[0] * s + N[0] * z, u1[1] * c + u2[1] * s + N[1] * z, u1[2] * c + u2[2] * s + N[2] * z];
+      };
+      const fromI = (q) => { const a = dirW(0), b = dirW(Math.PI / 2); return [0, 1, 2].map((i) => a[i] * q[0] + b[i] * q[1] + N[i] * q[2]); };
+      let Q = this.skyQ.get(v);
+      if (!Q) {
+        const s = v.sun || { eq: [1, 0, 0], lon: 0, lat: 0 };
+        const a1 = s.eq, a2 = norm(cross(GAL_N, a1)), a3 = cross(a1, a2);
+        const b1 = [Math.cos(s.lat) * Math.cos(s.lon), Math.cos(s.lat) * Math.sin(s.lon), Math.sin(s.lat)];
+        const f2 = Math.abs(b1[2]) > 0.999 ? [1, 0, 0] : norm(cross([0, 0, 1], b1)), f3 = cross(b1, f2);
+        const make = (ps) => {
+          const b2 = [0, 1, 2].map((i) => Math.cos(ps) * f2[i] + Math.sin(ps) * f3[i]), b3 = cross(b1, b2);
+          return (x) => { const p = [dot(a1, x), dot(a2, x), dot(a3, x)]; return [0, 1, 2].map((i) => b1[i] * p[0] + b2[i] * p[1] + b3[i] * p[2]); };
+        };
+        let best = -1;
+        for (let i = 0; i < 180; i++) {
+          const q = make((i / 180) * Math.PI * 2);
+          const gp = fromI(q(GAL_N)), gc = fromI(q(GAL_C));
+          const sc = Math.abs(dot(gp, MW_VIEW)) + 0.3 * Math.max(0, -gc[2]);
+          if (sc > best) { best = sc; Q = q; }
+        }
+        this.skyQ.set(v, Q);
+      }
+      return { self, dirW, u1, toW: (x) => fromI(Q(x)) };
+    }
+
+    // '실제 크기로 보기'에서 모항성이 행성 왼쪽 위로 보이도록 돌릴 시점 (yaw, pitch)
+    starView(world) {
+      const v = world.visual, r = Math.min(this.realStar ? v.starAngReal : v.starAng, 1.0);
+      const off = Math.min(0.9, 0.19 + 0.6 * r); // 큰 별은 일부가 행성 뒤로 숨어 크기를 견주어 볼 수 있다
+      const T = norm([-0.55 * Math.sin(off), 0.83 * Math.sin(off), -Math.cos(off)]);
+      let best = { yaw: 0, pitch: 0, d: -2 };
+      for (let yi = 0; yi < 360; yi++) for (let pi = -65; pi <= 65; pi++) {
+        const yaw = (yi / 360) * Math.PI * 2 - Math.PI, pitch = pi / 50;
+        const d = dot(M.vec(M.mul(M.rx(pitch), M.ry(yaw)), LIGHT), T);
+        if (d > best.d) best = { yaw, pitch, d };
+      }
+      return best;
+    }
+
+    /* 이웃 행성의 위치: 모든 행성이 같은 평면에서 돈다고 보고, 오늘 날짜의 궤도 위치(케플러 방정식)로 계산한다.
+     * 모항성을 원점에 둔다. 결과는 시점 좌표의 방향과 보이는 반지름 */
+    _siblings(v, V, sky) {
       if (!v.orbit || !v.siblings.length) return [];
-      const days = Date.now() / 864e5;
-      const L = LIGHT, up = [0, 1, 0], k = L[1];
-      const N = norm([up[0] - L[0] * k, up[1] - L[1] * k, up[2] - L[2] * k]);
-      const u1 = [-L[0], -L[1], -L[2]];
-      const u2 = [N[1] * u1[2] - N[2] * u1[1], N[2] * u1[0] - N[0] * u1[2], N[0] * u1[1] - N[1] * u1[0]];
-      const ang = (o) => (o.P ? (days / o.P) * Math.PI * 2 : 0) + o.h;
-      const t0 = ang(v.orbit), X = [u1[0] * v.orbit.a, u1[1] * v.orbit.a, u1[2] * v.orbit.a];
+      const X = sky.u1.map((x) => x * sky.self.r);
       const R_EARTH_AU = 4.2635e-5;
       return v.siblings.map((s) => {
-        const dt = ang(s) - t0, c = Math.cos(dt) * s.a, sn = Math.sin(dt) * s.a;
-        const Y = [u1[0] * c + u2[0] * sn, u1[1] * c + u2[1] * sn, u1[2] * c + u2[2] * sn];
+        const o = kepler(s, Date.now() / 864e5), dw = sky.dirW(o.lon);
+        const Y = dw.map((x) => x * o.r);
         const d = [Y[0] - X[0], Y[1] - X[1], Y[2] - X[2]], dist = Math.hypot(d[0], d[1], d[2]);
         return { name: s.name, kind: s.kind, rho: (s.rade * R_EARTH_AU) / dist,
           dir: M.vec(V, norm(d)), light: M.vec(V, norm([-Y[0], -Y[1], -Y[2]])) };
