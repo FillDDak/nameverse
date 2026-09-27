@@ -5,11 +5,13 @@
   const FONT = '"Pretendard Variable", Pretendard, "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif';
   let offscreen = null;
 
-  function planetImage(worlds, w, h, time) {
+  // 셰이더는 컴파일을 기다리지 않으므로(planet-gl.js), 엽서처럼 한 번에 그릴 때는 준비될 때까지 기다린다
+  async function planetImage(worlds, w, h, time) {
     if (!offscreen) {
       const c = document.createElement('canvas');
       offscreen = new NV.PlanetRenderer(c, { preserve: true });
     }
+    await offscreen.ready(worlds);
     offscreen.resize(w, h);
     offscreen.setWorlds(worlds, { instant: true });
     offscreen.drag = { x: 0, y: 0, vx: 0, vy: 0 };
@@ -87,7 +89,7 @@
     const ctx = c.getContext('2d');
     if (document.fonts && document.fonts.ready) await document.fonts.ready;
     background(ctx, W, H, [world]);
-    ctx.drawImage(planetImage([world], W, 820, time), 0, 80);
+    ctx.drawImage(await planetImage([world], W, 820, time), 0, 80);
     frame(ctx, W, H, world.accent);
     ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
 
@@ -130,7 +132,7 @@
     const ctx = c.getContext('2d');
     if (document.fonts && document.fonts.ready) await document.fonts.ready;
     background(ctx, W, H, [a, b]);
-    ctx.drawImage(planetImage([a, b], W, 700, time), 0, 190);
+    ctx.drawImage(await planetImage([a, b], W, 700, time), 0, 190);
     frame(ctx, W, H, a.accent);
     ctx.textAlign = 'center';
     ctx.fillStyle = a.accent; ctx.font = `700 22px ${FONT}`;
@@ -156,7 +158,7 @@
   }
 
   // 제어센터·잠금 화면용 앨범 아트 (정사각형, 글자 없이 행성만)
-  function artwork(world, time, S = 512) {
+  async function artwork(world, time, S = 512) {
     const c = document.createElement('canvas'); c.width = c.height = S;
     const ctx = c.getContext('2d');
     ctx.fillStyle = '#04040b';
@@ -171,7 +173,7 @@
       ctx.fillStyle = `rgba(255,255,255,${r.range(0.15, 0.7)})`;
       ctx.fillRect(r.range(0, S), r.range(0, S), s, s);
     }
-    const img = planetImage([world], S, S, time);
+    const img = await planetImage([world], S, S, time);
     ctx.drawImage(img, 0, 0);
     return c;
   }

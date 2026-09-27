@@ -78,6 +78,81 @@ const tw = NV.genesis('x', trap);
 assert(tw.constellation === '물병' && tw.rarity.name === '신화', 'TRAPPIST-1 e: 물병자리 · 신화');
 assert(NV.genesis('홍길동').exoIndex === NV.genesis('홍길동').exoIndex, '같은 이름 → 같은 실제 행성');
 
+// 6) 사실 오류 회귀 검사
+const at = (name) => NV.genesis('x', E.rows.findIndex((r) => r[0] === name));
+const sky = (w) => w.lore.find((l) => l.title === '하늘').text;
+const env = (w) => w.lore.find((l) => l.title === '환경').text;
+for (const n of ['KIC 7917485 b', 'V0391 Peg b']) {
+  const w = at(n); // 맥동하는 별(펄서 아님)
+  assert(w.biome.id !== 'crystal' && !/펄서/.test(w.rarity.reason + sky(w)), `${n}: 펄서로 다루지 않음`);
+}
+assert(at('PSR B1620-26 b').biome.id === 'gas', '목성만 한 펄서 행성은 가스 행성');
+assert(at('PSR B1257+12 c').visual.starGlow < 0.5 && /펄서/.test(sky(at('PSR B1257+12 c'))), '펄서 하늘에는 밝은 해가 없음');
+for (let i = 0; i < E.rows.length; i++) {
+  const r = E.rows[i];
+  if (r[3] >= 3.88 && r[3] < 6 && r[4] < 50 && /해왕성보다 작은/.test(env(NV.genesis('x', i)))) { assert(false, `${r[0]}: 해왕성보다 큰데 작다고 씀`); break; }
+}
+for (const n of ['HD 18438 b', 'HD 112300 b']) {
+  const w = at(n); // 적색거성
+  assert(!w.visual.flare && !/적색왜성/.test(sky(w)) && /적색거성/.test(sky(w)), `${n}: 적색거성, 플레어 없음`);
+}
+assert(at('AU Mic b').visual.flare, 'AU Mic(어린 적색왜성): 플레어');
+assert(/백색왜성/.test(sky(at('DP Leo b'))) && !/0배/.test(sky(at('DP Leo b'))), 'DP Leo: 백색왜성, 크기 0배 아님');
+assert(/준왜성/.test(sky(at('V0391 Peg b'))), 'V0391 Peg: 준왜성');
+assert(/갈색왜성/.test(sky(at('CD-35 2722 B b'))), 'CD-35 2722 B: 갈색왜성');
+assert(/K형 거성/.test(sky(at('tau Gem b'))), 'tau Gem: K형 거성');
+// 폭풍 크기는 행성 크기를 넘지 않는다
+for (let i = 0; i < E.rows.length; i++) {
+  const w = NV.genesis('x', i);
+  if (w.biome.id === 'gas' && NV.stormKm(w.visual, w.exo) > w.exo.rade * 12742 * 0.5) { assert(false, `${w.planet}: 폭풍이 너무 큼`); break; }
+}
+// 지표 탐사: 조석 고정된 눈알 행성은 별을 등진 쪽이 얼음, 마주한 쪽은 얼음이 아니다 (셰이더와 같은 판정)
+const tr = at('TRAPPIST-1 e'), Ld = [0, 0, 1];
+assert(NV.probe(tr, [0, 0, -1], Ld).kind === 'ice', 'TRAPPIST-1 e 밤 쪽 = 얼음');
+assert(NV.probe(tr, [0, 0, 1], Ld).kind !== 'ice', 'TRAPPIST-1 e 별을 마주한 곳 ≠ 얼음');
+// 7) 물리 판정: 관측으로 알려진 행성들
+const bio = (n) => at(n).biome.id;
+for (const n of ['TRAPPIST-1 b', 'LHS 3844 b', 'GJ 1132 b']) assert(bio(n) === 'airless', `${n}: 대기 없음 (JWST)`);
+assert(bio('GJ 1214 b') === 'subneptune', 'GJ 1214 b: 연무에 싸인 서브넵튠');
+assert(bio('LHS 1140 b') === 'ocean', 'LHS 1140 b: 물 행성 후보');
+for (const n of ['55 Cnc e', 'Kepler-10 b', 'Kepler-78 b']) assert(bio(n) === 'lava', `${n}: 용암`);
+const luma = (c) => 0.3 * c[0] + 0.5 * c[1] + 0.2 * c[2];
+assert(luma(at('HD 189733 b').visual.shallow) < 0.25, 'HD 189733 b: 알칼리 금속이 빛을 삼켜 어둡다 (Sudarsky IV)');
+assert(at('70 Vir b').visual.shallow[2] > at('70 Vir b').visual.shallow[0], '70 Vir b: 구름 없는 푸른 가스 행성 (Sudarsky III)');
+assert(luma(at('47 UMa b').visual.shallow) > 0.8, '47 UMa b: 물 구름의 흰색 (Sudarsky II)');
+const hj = at('HD 189733 b').visual;
+assert(hj.locked && hj.spin === 0 && hj.therm.shift > 0, '뜨거운 목성: 조석 고정, 가장 뜨거운 곳이 동쪽으로');
+assert(at('KELT-9 b').visual.thermMode === 1 && at('HR 8799 b').visual.thermMode === 3, '열복사: 초고온 목성은 낮 쪽이, 촬영된 젊은 행성은 스스로 빛남');
+assert(at('HD 189733 b').visual.thermMode === 0 || Math.max(...at('HD 189733 b').visual.thermA) < 1e30, '열복사 계수 유한');
+assert(/초저밀도/.test(env(at('Kepler-51 d'))), 'Kepler-51 d: 초저밀도 행성');
+assert(/갈색왜성일 수도/.test(env(at('11 Com b'))), '11 Com b: 목성 13배 경계');
+const ogle = at('OGLE-2005-BLG-390L b');
+assert(ogle.exo.hostEst && ogle.exo.eqt < 100 && /어림/.test(sky(ogle)), '미세중력렌즈: 모항성을 질량으로 어림, 차가운 행성');
+assert(/후보/.test(env(at('Kepler-442 b'))) && at('Kepler-442 b').lore.find((l) => l.title === '생명').text.startsWith('생명이 있다면'), 'Kepler-442 b: 생명 가능 영역의 암석 행성');
+// 조석 고정 행성의 온도 분포는 에너지를 보존한다: 표면 전체의 T⁴ 평균 = 평형 온도⁴ (밤 쪽 최저 온도를 받친 행성은 조금 크다)
+for (const n of ['TRAPPIST-1 e', 'Proxima Cen b', 'HD 189733 b', 'WASP-12 b']) {
+  const th = at(n).visual.therm, n4 = th.Tn ** 4, d4 = th.Ts ** 4 - n4;
+  const mean = n4 + d4 / 4; // 반구의 μ 평균 1/2, 낮 쪽은 표면의 절반
+  assert(Math.abs(mean / th.Tm ** 4 - 1) < 0.01, `${n}: 온도 분포의 에너지 보존 (${(mean / th.Tm ** 4).toFixed(3)})`);
+}
+// 대기가 없으면 유성·오로라 현상이 없고, 지표 탐사는 '기온'이라 하지 않는다. 희귀도 이유는 생명 가능 영역 판정과 맞는다
+for (let i = 0; i < E.rows.length; i++) {
+  const w = NV.genesis('x', i), ph = w.lore.find((l) => l.title === '현상').text;
+  if (w.visual.airless && /유성|오로라/.test(ph)) { assert(false, `${w.planet}: 대기 없는데 ${ph}`); break; }
+  if (w.rarity.reason === '생명 가능 영역의 암석 행성' && !/생명 가능 영역\(?[^)]*\)? 안에/.test(env(w))) { assert(false, `${w.planet}: 희귀도 이유와 생명 가능 영역 판정이 다름`); break; }
+}
+assert(!/기온/.test(NV.probe(at('LHS 3844 b'), [0, 0, 1], [0, 0, 1]).fact), '대기 없는 행성의 지표 탐사: 지표 온도');
+
+// 지표 탐사 수치는 행성과 맞아야 한다: 바다 −2~100°C, 얼음은 영하
+let pseed = 7;
+const prnd = () => { pseed = (pseed * 16807) % 2147483647; return pseed / 2147483647; };
+const pdir = () => { const u = prnd() * 2 - 1, t = prnd() * 6.283, s = Math.sqrt(1 - u * u); return [s * Math.cos(t), u, s * Math.sin(t)]; };
+for (let i = 0; i < E.rows.length; i += 3) {
+  const w = NV.genesis('x', i), pr = NV.probe(w, pdir(), pdir());
+  const m = /(?:기온|수온) 약 (-?\d+)°C/.exec(pr.fact), t = m && +m[1];
+  if (t != null && ((pr.kind === 'coast' || pr.kind === 'deep') && (t < -2 || t > 100) || pr.kind === 'ice' && t > 5)) { assert(false, `${w.planet}: ${pr.label} ${pr.fact}`); break; }
+}
+
 console.log('생물군계 분포:', counts);
 console.log('희귀도 분포:', rar);
 const s = NV.genesis('세종대왕');

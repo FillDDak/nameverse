@@ -2,9 +2,16 @@
  *
  * ⚠️ 이름 → 행성 연결은 이 파일이 만드는 목록의 '순서'에 달려 있다.
  *    다시 실행하면 목록이 바뀌어 이미 공유된 링크의 행성이 달라지므로, 데이터를 갱신할 때만 실행한다.
+ *
+ * node tools/build-exoplanets.js --append
+ *    행과 순서, 기존 값은 그대로 두고 각 행 끝의 덧붙인 열만 새로 채운다. 공유된 링크가 바뀌지 않는다.
  */
 const fs = require('fs');
 const path = require('path');
+const vm = require('vm');
+const FILE = path.join(__dirname, '..', 'js', 'exoplanets.js');
+const BASE_COLS = 25; // 처음부터 있던 열 수 (이름 ~ 지구유사도). 그 뒤는 덧붙인 열: 받는 빛의 양, 모항성 질량
+const EXTRA = 'pl_name,pl_insol,st_mass';
 
 const TAP = 'https://exoplanetarchive.ipac.caltech.edu/TAP/sync';
 const COLS = 'pl_name,hostname,sy_dist,pl_rade,pl_bmasse,pl_bmassprov,pl_orbper,pl_orbsmax,pl_orbeccen,pl_eqt,pl_insol,'
@@ -87,13 +94,21 @@ const REASONS = [
   '극한의 뜨거움', '거대한 크기', '하루도 안 걸리는 1년', '10년이 넘는 1년', '찌그러진 궤도',
   '행성 대가족', '초창기 발견', '작은 암석 행성', '별이 여럿인 항성계', '지구와 비슷한 크기',
 ];
+// 생명 가능 영역 (Kopparapu et al. 2014, 낙관적 경계 — js/genesis.js hzZone과 같은 식)
+const seff = (c, t) => c[0] + t * (c[1] + t * (c[2] + t * (c[3] + t * c[4])));
+function inHz(p) {
+  if (p.insol == null || p.teff == null) return p.eqt != null && p.eqt >= 190 && p.eqt <= 290;
+  const t = Math.max(2600, Math.min(7200, p.teff)) - 5780;
+  return p.insol <= seff([1.776, 2.136e-4, 2.533e-8, -1.332e-11, -3.097e-15], t) && p.insol >= seff([0.320, 5.547e-5, 1.526e-9, -2.874e-12, -5.011e-16], t);
+}
 function rarityScore(p) {
   const s = []; // [점수, 이유 번호]
-  const rocky = p.rade <= 1.8;
-  if (rocky && p.eqt != null && p.eqt >= 175 && p.eqt <= 320) s.push([100 + (p.esi || 0) * 20, 0]);
+  const rocky = p.rade <= 1.6; // 암석 행성 (Rogers 2015)
+  if (rocky && inHz(p)) s.push([100 + (p.esi || 0) * 20, 0]);
   if (p.dist != null) { if (p.dist < 33) s.push([45, 1]); else if (p.dist < 65) s.push([22, 1]); else if (p.dist < 160) s.push([8, 1]); }
   if (p.method === 'Imaging') s.push([48, 2]);
-  if (/Pulsar|Pulsation/.test(p.method)) s.push([55, 3]);
+  // 'Pulsation Timing Variations'는 맥동하는 보통 별이라 펄서가 아니다
+  if (p.method === 'Pulsar Timing') s.push([55, 3]);
   if (p.eqt != null && p.eqt > 2200) s.push([28 + (p.eqt - 2200) / 60, 4]);
   if (p.rade > 17) s.push([26, 5]);
   if (p.per != null && p.per < 1) s.push([22 + (1 - p.per) * 20, 6]);
@@ -109,6 +124,69 @@ function rarityScore(p) {
   // 가장 큰 특징 + 나머지 특징의 일부
   const score = s[0][0] + s.slice(1).reduce((t, x) => t + x[0] * 0.35, 0) + hash01(p.name);
   return { score, reason: s[0][1] };
+}
+
+const g = (v, d = 3) => (v == null || !Number.isFinite(v) ? null : Number(v.toPrecision(d)));
+
+/* 덧붙인 열의 값. r: NASA 응답의 한 행(없으면 이름이 바뀌었거나 빠진 행성), row: 목록의 한 행.
+ * 받는 빛의 양(지구 = 1)이 비어 있으면 모항성 온도·반지름과 궤도로 계산한다 */
+function extraCols(r, row) {
+  let insol = r ? num(r.pl_insol) : null;
+  const teff = row[12], srad = row[13], a = row[8];
+  if (insol == null && teff != null && srad != null && a != null) insol = srad ** 2 * (teff / 5772) ** 4 / a ** 2;
+  return [g(insol), r ? g(num(r.st_mass)) : null];
+}
+
+function writeData(d) {
+  const out = `/* NAMEVERSE — NASA Exoplanet Archive 확인된 외계행성 (${d.version} 기준, ${d.rows.length}개)
+ * tools/build-exoplanets.js가 만든 파일입니다. 직접 고치지 마세요.
+ * 행: [이름, 모항성, 거리(광년), 반지름(지구=1), 질량(지구=1), 질량구분(0 측정·1 최소·2 추정), 반지름추정,
+ *      공전주기(일), 궤도반지름(AU), 이심률, 평형온도(K), 온도추정, 항성온도(K), 항성반지름(태양=1), 별 수, 행성 수,
+ *      발견연도, 발견방법, 발견시설, 적경(°), 적위(°), 별자리, 희귀도 상위%, 희귀 이유, 지구유사도,
+ *      받는 빛의 양(지구=1), 모항성 질량(태양=1)] */
+(function () {
+  'use strict';
+  window.NV = window.NV || {};
+  window.NV.EXO = {
+    version: '${d.version}',${d.extended ? `
+    extended: '${d.extended}', // 마지막 두 열(받는 빛의 양, 모항성 질량)을 덧붙인 날 (--append)` : ''}
+    source: 'NASA Exoplanet Archive (Planetary Systems Composite Parameters)',
+    methods: ${JSON.stringify(d.methods)},
+    facilities: ${JSON.stringify(d.facilities)},
+    constellations: ${JSON.stringify(d.constellations)},
+    reasons: ${JSON.stringify(d.reasons)},
+    // 두 별을 함께 도는(쌍성 둘레) 행성: cb_flag=1
+    cb: ${JSON.stringify(d.cb)},
+    rows: [
+${d.rows.map((r) => '      ' + JSON.stringify(r)).join(',\n')},
+    ],
+  };
+})();
+`;
+  fs.writeFileSync(FILE, out);
+  return out;
+}
+
+// 행과 순서, 기존 값은 그대로 두고 덧붙인 열만 채운다
+async function append() {
+  const ctx = { window: {} };
+  vm.createContext(ctx);
+  vm.runInContext(fs.readFileSync(FILE, 'utf8'), ctx);
+  const E = ctx.window.NV.EXO;
+  console.log('NASA Exoplanet Archive에서 덧붙일 열을 받는 중…');
+  const url = `${TAP}?query=${encodeURIComponent(`select ${EXTRA} from pscomppars`)}&format=csv`;
+  const csv = await (await fetch(url)).text();
+  if (!csv.startsWith('pl_name')) throw new Error('예상하지 못한 응답: ' + csv.slice(0, 300));
+  const byName = new Map(parseCsv(csv).map((r) => [r.pl_name, r]));
+  let missing = 0;
+  const rows = E.rows.map((row) => {
+    const r = byName.get(row[0]);
+    if (!r) missing++;
+    return row.slice(0, BASE_COLS).concat(extraCols(r, row));
+  });
+  writeData({ version: E.version, extended: new Date().toISOString().slice(0, 10), methods: E.methods, facilities: E.facilities,
+    constellations: E.constellations, reasons: E.reasons, cb: E.cb, rows });
+  console.log(`✓ ${rows.length}개 행에 열 추가 (NASA 목록에서 찾지 못한 행성 ${missing}개는 빈 값)`);
 }
 
 async function main() {
@@ -156,7 +234,7 @@ async function main() {
     const p = {
       name: r.pl_name, host: r.hostname, dist: num(r.sy_dist), rade, masse, massEst, radEst, per, a,
       ecc: num(r.pl_orbeccen), eqt, eqtEst, teff, srad, snum: +r.sy_snum, pnum: +r.sy_pnum,
-      year: +r.disc_year, method, facility: r.disc_facility, ra, dec, esi,
+      year: +r.disc_year, method, facility: r.disc_facility, ra, dec, esi, insol,
       con: constellation(bounds, ra, dec),
     };
     Object.assign(p, rarityScore(p));
@@ -169,7 +247,6 @@ async function main() {
   const ranked = planets.slice().sort((x, y) => y.score - x.score);
   ranked.forEach((p, i) => { p.top = Math.max(0.1, Math.ceil(((i + 1) / planets.length) * 1000) / 10); });
 
-  const g = (v, d = 3) => (v == null || !Number.isFinite(v) ? null : Number(v.toPrecision(d)));
   const rows = planets.map((p) => [
     p.name, p.host, g(p.dist != null ? p.dist * 3.26156 : null, 4), g(p.rade), g(p.masse), p.massEst, p.radEst,
     g(p.per, 4), g(p.a), g(p.ecc, 2), g(p.eqt), p.eqtEst, g(p.teff, 4), g(p.srad), p.snum, p.pnum, p.year,
@@ -183,31 +260,10 @@ async function main() {
   const cb = (await (await fetch(cbQ)).text()).trim().split('\n').slice(1)
     .map((l) => l.trim().replace(/^"|"$/g, '')).filter((n) => names.has(n)).sort();
   const today = new Date().toISOString().slice(0, 10);
-  const out = `/* NAMEVERSE — NASA Exoplanet Archive 확인된 외계행성 (${today} 기준, ${rows.length}개)
- * tools/build-exoplanets.js가 만든 파일입니다. 직접 고치지 마세요.
- * 행: [이름, 모항성, 거리(광년), 반지름(지구=1), 질량(지구=1), 질량구분(0 측정·1 최소·2 추정), 반지름추정,
- *      공전주기(일), 궤도반지름(AU), 이심률, 평형온도(K), 온도추정, 항성온도(K), 항성반지름(태양=1), 별 수, 행성 수,
- *      발견연도, 발견방법, 발견시설, 적경(°), 적위(°), 별자리, 희귀도 상위%, 희귀 이유, 지구유사도] */
-(function () {
-  'use strict';
-  window.NV = window.NV || {};
-  window.NV.EXO = {
-    version: '${today}',
-    source: 'NASA Exoplanet Archive (Planetary Systems Composite Parameters)',
-    methods: ${JSON.stringify(methods.map((m) => [m, METHOD_KO[m] || m]))},
-    facilities: ${JSON.stringify(facilities)},
-    constellations: ${JSON.stringify(cons.map((c) => CON_KO[c] || c))},
-    reasons: ${JSON.stringify(REASONS)},
-    // 두 별을 함께 도는(쌍성 둘레) 행성: cb_flag=1
-    cb: ${JSON.stringify(cb)},
-    rows: [
-${rows.map((r) => '      ' + JSON.stringify(r)).join(',\n')},
-    ],
-  };
-})();
-`;
-  const file = path.join(__dirname, '..', 'js', 'exoplanets.js');
-  fs.writeFileSync(file, out);
+  const byName = new Map(parseCsv(csv).map((r) => [r.pl_name, r]));
+  rows.forEach((row) => row.push(...extraCols(byName.get(row[0]), row)));
+  const out = writeData({ version: today, methods: methods.map((m) => [m, METHOD_KO[m] || m]),
+    facilities, constellations: cons.map((c) => CON_KO[c] || c), reasons: REASONS, cb, rows });
   const unknownCon = cons.filter((c) => !CON_KO[c]);
   console.log(`✓ ${rows.length}개 행성 → js/exoplanets.js (${(out.length / 1024).toFixed(0)}KB)`);
   if (unknownCon.length) console.warn('한국어 이름이 없는 별자리:', unknownCon);
@@ -218,4 +274,4 @@ ${rows.map((r) => '      ' + JSON.stringify(r)).join(',\n')},
   }
 }
 
-main().catch((e) => { console.error(e); process.exit(1); });
+(process.argv.includes('--append') ? append() : main()).catch((e) => { console.error(e); process.exit(1); });

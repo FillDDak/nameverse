@@ -258,7 +258,6 @@
           edge = (Math.sqrt(r2) - SKY_RESPAWN) / (SKY_NEAR - SKY_RESPAWN);
         }
         if (st.fade < 1) st.fade = Math.min(1, st.fade + dt * 0.4);
-        st.tw += st.tws * dt;
         const q = this._project(p, view);
         if (!q) continue;
         let near = nearness(q[2]);
@@ -267,8 +266,8 @@
           const k = st.blend * st.blend * (3 - 2 * st.blend);
           near = st.near0 + (near - st.near0) * k;
         }
-        // 우주에는 대기가 없어 별이 거의 반짝이지 않는다
-        const a = Math.min(1, (0.35 + near * 0.9) * (0.95 + 0.05 * Math.sin(st.tw))) * edge * st.fade;
+        // 우주에는 대기가 없어 별이 반짝이지 않는다 (셰이더가 그리는 먼 별들도 같다)
+        const a = Math.min(1, 0.35 + near * 0.9) * edge * st.fade;
         const size = Math.min(3.4 * this.dpr, st.s * (0.5 + near * 1.6) * this.dpr);
         ctx.fillStyle = `rgba(${st.col},${a})`;
         if (size < 1.8 * this.dpr) ctx.fillRect(q[0] - size / 2, q[1] - size / 2, size, size);

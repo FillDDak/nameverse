@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8"><title>NAMEVERSE — 셰이더 컴파일 시간 (개발용)</title></head>
+<body style="background:#05050c;color:#ccd;font:14px system-ui">
+<canvas id="c" width="400" height="400"></canvas>
+<pre id="out"></pre>
+<script src="../js/seed.js"></script><script src="../js/exoplanets.js"></script><script src="../js/genesis.js"></script><script src="../js/planet-gl.js"></script>
+<script>
+/* 사용법: tests/shader-timing.html — 캐시가 없는 첫 방문을 재려면 새 브라우저 프로필로 연다.
+ *  기본: 첫 화면처럼 행성 하나를 그리며, 행성(과 하늘)이 나타나기까지의 시간과 그동안 화면 프레임이 가장 오래 멈춘
+ *        간격을 잰다. 프레임이 멈추면 GPU 프로세스가 붙잡힌 것이고, 그동안 브라우저 전체가 굳는다
+ *        ?planet=LHS 3844 b&sky — 원하는 실제 행성을, 하늘까지 그리는 행성 화면처럼
+ *  ?variants: 셰이더 변형마다 컴파일을 기다려 걸린 시간을 잰다 (캐시를 피하도록 매번 주석을 바꾼다) */
+const out = document.getElementById('out');
+const log = (s) => { out.textContent += s + '\n'; console.log('[timing] ' + s); };
+const r = new NV.PlanetRenderer(document.getElementById('c'));
+const gl = r.gl, dbg = gl.getExtension('WEBGL_debug_renderer_info');
+log('GPU: ' + (dbg ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : '?'));
+log('KHR_parallel_shader_compile: ' + !!r.par);
+const q = new URLSearchParams(location.search);
+
+if (q.has('variants')) {
+  const DEF = { G: 'GAS', L: 'LAVA', C: 'CRATER', K: 'SKYPASS' };
+  for (const key of ['R', 'C', 'G', 'L', 'K']) {
+    const src = `#define ${DEF[key] || 'ROCK'}\n// ${Math.random()}\n` + NV.PlanetRenderer.FRAG;
+    const t0 = performance.now();
+    const p = gl.createProgram(), sh = (t, s) => { const x = gl.createShader(t); gl.shaderSource(x, s); gl.compileShader(x); gl.attachShader(p, x); };
+    sh(gl.VERTEX_SHADER, NV.PlanetRenderer.VERT); sh(gl.FRAGMENT_SHADER, src); gl.linkProgram(p);
+    const ok = gl.getProgramParameter(p, gl.LINK_STATUS);
+    log(`변형 ${key}: ${(performance.now() - t0).toFixed(0)} ms${ok ? '' : ' 실패 ' + gl.getProgramInfoLog(p)}`);
+  }
+} else {
+  const name = q.get('planet'), sky = q.has('sky');
+  const w = name ? NV.genesis(name, NV.EXO.rows.findIndex((row) => row[0] === name)) : NV.genesis('NAMEVERSE');
+  if (sky) r.layout = (W, H) => [{ x: 0, y: 0, w: W, h: H, shift: [0, 0], fit: 0.4, sky: true }];
+  log('행성: ' + w.planet + ' · 변형 ' + NV.PlanetRenderer.variant(w) + (sky ? ' + 하늘 K' : ''));
+  const t0 = performance.now();
+  r.setWorlds([w], { grow: false });
+  let last = t0, maxGap = 0, maxJs = 0, frames = 0, planetAt = 0;
+  const done = () => !r.slots[0].pending && (!sky || (r.progs.get('K') && r.progs.get('K').u));
+  (function loop(now) {
+    const gap = now - last; last = now; frames++;
+    if (frames > 1) maxGap = Math.max(maxGap, gap);
+    const a = performance.now(); r.render(now / 1000); maxJs = Math.max(maxJs, performance.now() - a);
+    if (!planetAt && !r.slots[0].pending) { planetAt = performance.now(); log(`행성이 나타나기까지: ${(planetAt - t0).toFixed(0)} ms`); }
+    if (!done()) return requestAnimationFrame(loop);
+    if (sky) log(`하늘까지: ${(performance.now() - t0).toFixed(0)} ms`);
+    log(`그동안 ${frames}프레임, 가장 긴 프레임 간격: ${maxGap.toFixed(0)} ms · render() 한 번의 최대 시간: ${maxJs.toFixed(0)} ms`);
+  })(t0);
+}
+</script></body></html>

@@ -238,6 +238,7 @@
       renderer.zoom = 1;
       Object.assign(renderer.cam, { yaw: 0, pitch: 0, vyaw: 0, vpitch: 0 });
       renderer.setWorlds([w], { grow: false });
+      renderer.prepare([w], true); // 이 행성에 들어가면 쓸 셰이더(하늘까지 그리는 변형)를 미리 컴파일해 둔다
     }
     setAccent(w);
     el.hint.innerHTML = w.bday
@@ -327,7 +328,7 @@
     hideProbe();
     el.intro.classList.add('leaving');
     el.panel.hidden = el.duoPanel.hidden = el.duoLabels.hidden = true;
-    if (renderer) renderer.setWorlds([]);
+    if (renderer) { renderer.setWorlds([]); renderer.prepare(worlds, worlds.length === 1); } // 탐색 연출 동안 컴파일
     setAccent(worlds[0]);
     stars.warpTarget = reducedMotion ? 0.15 : 1;
     el.scan.hidden = false;
@@ -338,7 +339,7 @@
     scramble(el.scanCoord, `RA ${w.coords.ra} · DEC ${w.coords.dec} · ${w.catalog}`, 2000);
     const b = w.bday, num = (x) => x.toLocaleString('ko-KR');
     const lines = worlds.length > 1
-      ? ['두 이름의 파동을 겹쳐 보는 중…', '두 행성의 궤도를 계산하는 중…', '중력의 공명을 측정하는 중…', '쌍성계 포착!']
+      ? ['두 이름의 파동을 겹쳐 보는 중…', '두 행성 사이의 거리를 재는 중…', '두 행성의 1년 길이를 비교하는 중…', '두 행성 확인!']
       : b
         ? [`태어난 지 ${num(b.days)}일째`, `외계행성 ${num(NV.EXO.rows.length)}개의 1년 길이와 맞춰 보는 중…`,
           `오늘 생일인 행성 ${num(b.count)}개 발견`, '그중 1년이 가장 긴 행성 확인!']
@@ -425,7 +426,7 @@
         </div>
         <h3 class="p-h reveal" ${d()}>관측 데이터 <small>NASA Exoplanet Archive</small></h3>
         <dl class="p-stats reveal" ${d()}>
-          ${w.stats.map((s, k) => `<div class="${k === w.stats.length - 1 ? 'wide' : ''}"><dt>${esc(s.k)}</dt><dd>${esc(s.v)}</dd></div>`).join('')}
+          ${w.stats.map((s) => `<div class="${s.wide ? 'wide' : ''}"><dt>${esc(s.k)}</dt><dd>${esc(s.v)}</dd></div>`).join('')}
         </dl>
         <div class="p-lore">
           ${w.lore.filter((s) => s.real).map((s) => `<section class="reveal" ${d()}><h4>${esc(s.title)}</h4><p>${esc(s.text)}</p></section>`).join('')}
@@ -518,12 +519,13 @@
   const artCache = new Map();
   function nowPlaying(w) {
     if (!('mediaSession' in navigator) || !window.MediaMetadata) return;
-    let art = artCache.get(w.key);
+    const art = artCache.get(w.key);
     if (!art && renderer) {
-      try {
-        art = NV.postcard.artwork(w, 12).toDataURL('image/jpeg', 0.9);
-        artCache.set(w.key, art);
-      } catch (e) { console.error(e); }
+      // 행성 그림은 셰이더가 준비된 뒤에 나온다: 우선 앱 아이콘으로 띄우고, 그림이 생기면 바꾼다
+      NV.postcard.artwork(w, 12).then((c) => {
+        artCache.set(w.key, c.toDataURL('image/jpeg', 0.9));
+        if (music.playing && (S.world || S.preview) === w) nowPlaying(w);
+      }).catch(console.error);
     }
     navigator.mediaSession.metadata = new MediaMetadata({
       title: w.planet,
@@ -758,7 +760,7 @@
     const k = el.canvas.width / innerWidth;
     const hit = renderer.pick(x * k, y * k, performance.now() / 1000);
     if (!hit) { hideProbe(); return; }
-    const info = NV.probe(hit.world, hit.local);
+    const info = NV.probe(hit.world, hit.local, hit.light);
     el.probe.innerHTML = `<div class="k">${info.icon} ${esc(info.label)}${S.mode === 'duo' ? ' · ' + esc(hit.world.planet) : ''}</div>
       <div class="n">${esc(info.name)}</div><div class="c">${esc(info.coord)}</div><div class="f">${esc(info.fact)}</div>`;
     el.marker.style.left = x + 'px'; el.marker.style.top = y + 'px';
