@@ -80,7 +80,7 @@
     const q = [lp[0] * v.scale + v.seedOff[0], lp[1] * v.scale + v.seedOff[1], lp[2] * v.scale + v.seedOff[2]];
     const out = (kind, s) => ({ kind, hh, ndl, s: s == null ? ndl : s });
     if (v.type === 2) {
-      // 조석 고정된 용암 행성은 낮 쪽이 마그마 바다, 밤 쪽의 낮은 곳은 빛이 꺼진 채 식어 있다. 수정 행성의 낮은 곳은 빛나지 않는다
+      // 조석 고정된 용암 행성은 낮 쪽이 마그마 바다, 밤 쪽의 낮은 곳은 빛이 꺼진 채 식어 있다
       const seaL = v.sea + (v.locked ? 0.3 * Math.max(ndl, 0) : 0);
       const lit = v.locked ? smooth(-0.45, 0.1, ndl) : 1;
       if (hh < seaL - 0.025 && lit > 0.5 && v.spec < 0.5) return out('lava');
@@ -143,7 +143,7 @@
     // 드러난 용암은 1,000°C 안팎에서 굳는다: 표면 온도가 그보다 낮게 계산되면(밤 쪽 경계 등) 용암 자체의 온도를 알려 준다
     lava: { nouns: ['용암 호수', '불의 강', '마그마 바다'], icon: '🌋', label: '용암 지대', fact: (x) => [`온도 약 ${degC(Math.max(x.T || 0, 1373))}`] },
     fireLand: { nouns: ['유리 사막', '흑요석 평원', '재의 들판'], icon: '🪨', label: '굳은 대지', fact: (x) => [x.elevText, x.T != null && `지표 온도 약 ${degC(x.T)}`] },
-    fireHigh: { nouns: ['수정 산맥', '흑요석 탑', '결정 협곡'], icon: '💎', label: '결정 고원', fact: (x) => [x.elevText, x.T != null && `지표 온도 약 ${degC(x.T)}`] },
+    fireHigh: { nouns: ['현무암 산맥', '흑요석 탑', '화산 협곡'], icon: '🌋', label: '화산 고원', fact: (x) => [x.elevText, x.T != null && `지표 온도 약 ${degC(x.T)}`] },
   };
 
   // light: 행성 로컬 좌표의 모항성 방향 (renderer.pick이 돌려준다)

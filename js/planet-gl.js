@@ -412,7 +412,8 @@ vec3 shadePlanet(vec3 n, vec3 rd, vec3 p, float px){
     float dd = colat - (0.3 + 0.28*uFlare.y) - wob;
     float band = exp(-dd*dd/0.0035) + 0.35*exp(-dd*dd/0.03);
     float curtain = 0.5 + 0.5*snoise(vec3(lq.x*16.0, lq.z*16.0, uTime*0.45));
-    c += uAurora*band*(0.35 + 0.65*curtain)*uFlare.y*(1.0 - day*0.8)*1.4;
+    // 낮 쪽에서는 햇빛에 묻혀 흐리다. 빛이 거의 없는 펄서 행성에서는 낮에도 보인다
+    c += uAurora*band*(0.35 + 0.65*curtain)*uFlare.y*(1.0 - day*0.8*min(uLightK*1.5, 1.0))*1.4;
   }
 
   // 대기: 가장자리로 갈수록 두꺼워지고, 낮과 밤 경계는 노을빛
@@ -883,6 +884,7 @@ void main(){
     setWorlds(worlds, { instant = false, grow = true } = {}) {
       const now = performance.now() / 1000;
       this.realStar = false; // 모항성을 실제 크기로 보기 (행성 화면의 버튼)
+      this.imagine = false;  // 상상 속 도시 불빛 (행성 화면의 버튼)
       this.slots = worlds.map((w) => ({
         world: w,
         appearAt: instant || !grow ? now - 10 : now,
@@ -937,6 +939,8 @@ void main(){
     _updateFlare(slot, time) {
       const v = slot.world.visual;
       if (this.flareWorld !== slot.world.key) { this.flareWorld = slot.world.key; this.flareAt = null; this.flareNext = time + 10 + Math.random() * 15; }
+      // 펄서의 입자 바람은 쉬지 않아 오로라가 늘 켜져 있다 (천천히 세졌다 약해졌다)
+      if (v.auroraSteady) { this.flareNow = [0, v.auroraSteady * (0.75 + 0.25 * Math.sin(time * 0.35))]; return; }
       if (!v.flare) { this.flareNow = [0, 0]; return; }
       if (time > this.flareNext) { this.flareAt = time; this.flareAmp = 0.55 + Math.random() * 0.45; this.flareNext = time + 45 + Math.random() * 75; }
       if (this.flareAt == null) { this.flareNow = [0, 0]; return; }
@@ -1020,7 +1024,7 @@ void main(){
       ['Deep', 'Shallow', 'Land', 'High', 'Peak', 'Atmo', 'Emit', 'CloudCol'].forEach((k) => {
         f3('u' + k, v[k.charAt(0).toLowerCase() + k.slice(1)] || [0, 0, 0]);
       });
-      f1('uSea', v.sea); f1('uClouds', v.clouds); f1('uIce', v.ice); f1('uCity', v.city);
+      f1('uSea', v.sea); f1('uClouds', v.clouds); f1('uIce', v.ice); f1('uCity', this.imagine && meteors ? v.city : 0);
       f3('uLock', [v.locked ? 1 : 0, v.lockIce != null ? v.lockIce : -2, Math.sin(Math.min(v.starAngReal || 0, 1.3))]);
       // 대기가 없으면 플레어가 일어나도 오로라가 생기지 않는다
       f2('uFlare', meteors && this.flareNow ? [this.flareNow[0], v.aurora === false ? 0 : this.flareNow[1]] : [0, 0]); f3('uAurora', v.auroraCol || [0.35, 1, 0.55]);

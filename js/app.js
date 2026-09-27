@@ -435,6 +435,7 @@
             ? `<button class="ghost small star-btn" data-act="star" aria-pressed="false">${STAR_BTN[0]}</button>` : ''}</section>`).join('')}
         </div>
         <h3 class="p-h reveal" ${d()}>상상 기록 <small>실제 데이터에 상상을 더한 이야기</small></h3>
+        ${w.visual.city > 0 ? `<button class="ghost small city-btn reveal" ${d()} data-act="city" aria-pressed="false">${CITY_BTN[0]}</button>` : ''}
         <div class="p-tags reveal" ${d()}>${w.tags.map((t) => `<span>${esc(t)}</span>`).join('')}</div>
         <div class="p-role reveal" ${d()}>이 행성에서 당신의 직업은<br><b>${esc(w.role)}</b>입니다.</div>
         <div class="p-lore">
@@ -459,6 +460,7 @@
     else if (act === 'share') shareLink();
     else if (act === 'duo') openDuoModal();
     else if (act === 'star') toggleStarView(b);
+    else if (act === 'city') toggleCity(b);
     else if (act === 'new') { location.hash = ''; setTimeout(() => { el.name.value = ''; updatePreview(true); el.name.focus(); }, 50); }
     else if (act === 'back') go(S.world.owner);
     else if (act === 'other') go(S.partner.owner);
@@ -766,6 +768,14 @@
     T.yaw += Math.PI * 2 * Math.round((c.yaw - T.yaw) / (Math.PI * 2)); // 가까운 쪽으로 돈다
     S.viewReset = T;
     S.idleAt = performance.now() + 45000; // 한동안 자동 회전을 멈춰 별을 볼 시간을 준다
+  }
+  // 상상 속 도시 불빛: 실제로 관측된 것이 아니어서 처음에는 끄고, 누르면 밤 쪽에 켠다
+  const CITY_BTN = ['🌃 상상 속 도시 불빛 켜기', '🌃 도시 불빛 끄기'];
+  function toggleCity(b) {
+    if (!renderer) return;
+    renderer.imagine = !renderer.imagine;
+    b.setAttribute('aria-pressed', String(renderer.imagine));
+    b.textContent = CITY_BTN[renderer.imagine ? 1 : 0];
   }
   function resetView() {
     // 자동 회전으로 여러 바퀴 돈 시점도 가까운 쪽으로 한 번에 돌아오게

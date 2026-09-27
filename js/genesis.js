@@ -51,9 +51,7 @@
   /* ───────────── 생물군계 ───────────── */
   const BIOMES = [
     {
-      id: 'ocean', name: '푸른 대양 행성', weight: 14, temp: [4, 28], life: [70, 99], mode: 'dorian', cat: 'surface',
-      sky: ['맑은 날엔 옅은 청록빛, 해 질 녘엔 복숭앗빛으로 물드는 하늘', '구름 사이로 무지개가 하루에도 몇 번씩 걸리는 하늘'],
-      weather: ['맑음 · 오후에 무지개', '잔잔한 해무', '따뜻한 소나기 후 쌍무지개'],
+      id: 'ocean', name: '푸른 대양 행성', mode: 'dorian', cat: 'surface',
       land: [
         '행성 표면의 {seaPct}%가 바다로 덮여 있고, 가장 깊은 해구에서는 스스로 빛을 내는 해류가 천천히 흐릅니다.',
         '큰 대륙은 없고, 화산이 만든 작은 섬들이 적도를 따라 띠처럼 흩어져 있습니다.',
@@ -71,9 +69,7 @@
       },
     },
     {
-      id: 'garden', name: '에메랄드 정원 행성', weight: 12, temp: [12, 32], life: [88, 100], mode: 'lydian', cat: 'surface',
-      sky: ['연둣빛 안개가 아침마다 낮게 깔리는 하늘', '꽃가루가 햇빛에 반짝이며 떠다니는 금빛 하늘'],
-      weather: ['맑음 · 꽃가루 많음', '보슬비 · 숲 냄새 짙음', '따스한 바람 · 나비 떼 이동'],
+      id: 'garden', name: '에메랄드 정원 행성', mode: 'lydian', cat: 'surface',
       land: [
         '대륙 대부분이 울창한 숲으로 덮여 있고, 가장 큰 나무는 수백 미터까지 자랍니다.',
         '봄이 되면 적도를 따라 꽃이 한꺼번에 피어나 우주에서도 초록 행성 위에 분홍 띠가 보입니다.',
@@ -91,9 +87,7 @@
       },
     },
     {
-      id: 'desert', name: '붉은 사막 행성', weight: 11, temp: [35, 90], life: [5, 40], mode: 'phrygian', cat: 'surface',
-      sky: ['구릿빛 먼지가 떠도는 주황색 하늘', '해가 두 번 지는 것처럼 보이는 신기루의 하늘'],
-      weather: ['모래 폭풍 후 쌍무지개', '작열하는 햇빛 · 신기루 주의', '맑음 · 밤에는 서리'],
+      id: 'desert', name: '붉은 사막 행성', mode: 'phrygian', cat: 'surface',
       land: [
         '물은 모두 증발했고, 붉은 암석 평원과 모래 언덕이 끝없이 이어집니다.',
         '바람이 강한 계절에는 모래 폭풍이 대륙 하나를 통째로 덮습니다.',
@@ -114,9 +108,7 @@
       },
     },
     {
-      id: 'alien', name: '보랏빛 이계 행성', weight: 8, temp: [-20, 40], life: [50, 95], mode: 'lydian', cat: 'surface',
-      sky: ['보랏빛 하늘에 초록 오로라가 낮에도 흐르는 하늘', '태양이 푸르게, 달이 붉게 보이는 뒤집힌 하늘'],
-      weather: ['보랏빛 안개 · 중력 약간 불안정', '거꾸로 내리는 비', '오로라 폭풍 · 전파 두절'],
+      id: 'alien', name: '보랏빛 이계 행성', mode: 'lydian', cat: 'surface',
       land: [
         '붉은 별빛을 잘 흡수하는 조류가 퍼져 있어서, 바다가 보랏빛을 띱니다.',
         '식물은 대부분 검붉거나 보라색이라, 대륙 전체가 어둡게 보입니다.',
@@ -134,9 +126,7 @@
       },
     },
     {
-      id: 'coral', name: '산호빛 황혼 행성', weight: 7, temp: [18, 45], life: [60, 97], mode: 'mixolydian', cat: 'surface',
-      sky: ['영원히 노을이 지는 분홍빛 하늘', '복숭아색 구름이 느리게 흘러가는 따뜻한 하늘'],
-      weather: ['따뜻함 · 노을 지속', '분홍 안개 · 바다 발광', '맑음 · 산호 산란기'],
+      id: 'coral', name: '산호빛 황혼 행성', mode: 'mixolydian', cat: 'surface',
       land: [
         '해안선 대부분이 산호초로 둘러싸여 있고, 산호가 자라면서 해안선이 조금씩 바뀝니다.',
         '황금빛 모래사장 위로 분홍 바다가 밀려오고, 저녁이면 바다 전체가 은은하게 빛납니다.',
@@ -154,9 +144,7 @@
       },
     },
     {
-      id: 'gas', name: '줄무늬 가스 거인', weight: 12, temp: [-150, -80], life: [0, 12], mode: 'aeolian', cat: 'gas',
-      sky: ['끝없이 소용돌이치는 호박색 구름층', '번개가 구름 띠 사이를 오가는 황금빛 대기'],
-      weather: ['초속 400m 제트기류', '번개 폭풍 · 매우 흐림', '암모니아 눈'],
+      id: 'gas', name: '줄무늬 가스 거인', mode: 'aeolian', cat: 'gas',
       land: [
         '단단한 땅이 없는 이 거대한 행성은 수천 킬로미터 두께의 구름층이 겹겹이 흐르는 하나의 바다입니다.',
         '거대한 폭풍 ‘{storm}’{stormJosa} 관측 이래 한 번도 멈춘 적이 없으며, {stormCmp}',
@@ -174,9 +162,7 @@
       },
     },
     {
-      id: 'icegiant', name: '청록빛 얼음 거인', weight: 9, temp: [-220, -160], life: [0, 8], mode: 'dorian', cat: 'gas',
-      sky: ['깊고 투명한 청록색 대기', '메탄 구름이 비단처럼 흐르는 푸른 대기'],
-      weather: ['다이아몬드 비', '초음속 바람 · 매우 추움', '메탄 눈보라'],
+      id: 'icegiant', name: '청록빛 얼음 거인', mode: 'dorian', cat: 'gas',
       land: [
         '대기 깊은 곳에서는 엄청난 압력 때문에 다이아몬드 비가 내릴 수 있습니다.',
         '대기의 메탄이 붉은 빛을 흡수해서, 행성 전체가 청록색으로 보입니다.',
@@ -193,9 +179,7 @@
       },
     },
     {
-      id: 'lava', name: '용암 대장간 행성', weight: 9, temp: [400, 1200], life: [0, 3], mode: 'phrygian', cat: 'fire',
-      sky: ['화산재 때문에 늘 붉게 달아오른 하늘', '검은 연기 사이로 불티가 별처럼 떠다니는 하늘'],
-      weather: ['용암 소나기', '화산재 · 가시거리 0', '뜨거움 · 매우 뜨거움'],
+      id: 'lava', name: '용암 대장간 행성', mode: 'phrygian', cat: 'fire',
       land: [
         '지각의 갈라진 틈마다 용암이 흘러서, 밤 쪽에서는 붉은 균열이 그물처럼 드러납니다.',
         '용암 호수들은 {n}시간 주기로 부풀었다 가라앉습니다.',
@@ -213,29 +197,27 @@
       },
     },
     {
-      id: 'crystal', name: '흑요석 수정 행성', weight: 6, temp: [-80, -10], life: [10, 45], mode: 'lydian', cat: 'fire',
-      sky: ['별빛이 수정에 반사되어 낮에도 반짝이는 하늘', '빛의 기둥이 대지에서 하늘로 솟는 보랏빛 하늘'],
-      weather: ['결정 폭풍 · 반짝임 주의', '고요함 · 수정 공명', '빛의 비'],
+      // 펄서를 도는 암석 행성: 보이는 빛은 거의 없고, 펄서가 내뿜는 고에너지 입자 바람을 맞는 어두운 암석 (크레이터).
+      // 대기가 남아 있다면 입자 바람이 극지방에 늘 강한 오로라를 일으킨다 (Patruno & Kama 2017)
+      id: 'crystal', name: '펄서 바람을 맞는 어두운 행성', mode: 'lydian', cat: 'barren',
       land: [
-        '대지 전체가 거대한 흑요석과 수정 결정으로 덮여 있고, 갈라진 틈 사이로 차가운 빛이 새어 나옵니다.',
-        '수정 산맥에 별빛이 반사되면 이 행성의 밤은 낮보다 밝아집니다.',
-        '결정은 아주 천천히 자라서, 가장 높은 수정탑은 {n}만 년 동안 자라 온 것으로 추정됩니다.',
+        '모항성인 펄서는 보이는 빛을 거의 내지 않아서, 대지는 한낮에도 해 질 녘처럼 어둡습니다.',
+        '초신성 폭발 뒤에 남은 잔해가 다시 뭉쳐 생긴 행성이라, 땅속에는 무거운 원소가 유난히 많을 것으로 추정됩니다.',
+        '펄서가 쉬지 않고 내뿜는 입자 바람 때문에, 극지방 하늘에는 {n}겹의 오로라가 밤낮없이 일렁입니다.',
       ],
       gen(r) {
-        const eh = r.chance(0.5) ? r.range(170, 200) : r.range(280, 315);
+        const h = r.chance(0.5) ? r.range(220, 240) : r.range(260, 280), s = r.range(0.04, 0.1);
+        r.next(); r.next(); // 예전 모습과 같은 수(8개)의 난수를 써서 뒤따르는 모습(자전·폭풍 등)의 난수 순서를 지킨다
         return {
-          type: 2, deep: hsl(r.range(250, 270), 0.25, 0.07), shallow: hsl(r.range(240, 260), 0.3, 0.17),
-          land: hsl(r.range(260, 280), 0.35, 0.32), high: [0, 0, 0], peak: [0, 0, 0],
-          emit: hsl(eh, 1, 0.6), sea: r.range(0.34, 0.41), spec: 1,
-          clouds: r.range(0, 0.15), ice: 0, city: 0, atmo: hsl(eh, 0.9, 0.66), atmoStr: r.range(1, 1.3),
-          cloudCol: hsl(260, 0.3, 0.75),
+          type: 0, deep: hsl(r.range(220, 240), s, 0.1), shallow: hsl(h, s, 0.14),
+          land: hsl(h, s, r.range(0.14, 0.2)), high: hsl(h, s * 0.8, 0.26), peak: hsl(h, s * 0.6, 0.34),
+          sea: 0, clouds: 0, ice: 1.5, city: 0, atmo: hsl(265, 0.7, 0.62), atmoStr: r.range(0.25, 0.4),
+          cloudCol: [1, 1, 1], emit: [0, 0, 0], crater: 1,
         };
       },
     },
     {
-      id: 'glacier', name: '고요한 빙하 행성', weight: 10, temp: [-90, -30], life: [5, 35], mode: 'aeolian', cat: 'cold',
-      sky: ['오로라가 커튼처럼 드리운 하늘', '얼음 결정이 햇빛을 받아 무리해가 뜨는 하늘'],
-      weather: ['은빛 눈', '오로라 주의보 · 매우 맑음', '고요함 · 바람 없음'],
+      id: 'glacier', name: '고요한 빙하 행성', mode: 'aeolian', cat: 'cold',
       land: [
         '두꺼운 빙하 아래에 따뜻한 바다가 숨어 있어서, 얼음이 갈라진 틈으로 푸른빛이 올라옵니다.',
         '얼음 평원에는 바람이 조각한 거대한 얼음 성당들이 끝없이 늘어서 있습니다.',
@@ -253,7 +235,7 @@
     },
     {
       // 뜨거운 서브넵튠: 짙은 연무 때문에 띠가 흐릿한 원반으로 보인다 (GJ 1214 b, K2-18 b)
-      id: 'subneptune', name: '연무에 싸인 서브넵튠', weight: 0, mode: 'dorian', cat: 'gas',
+      id: 'subneptune', name: '연무에 싸인 서브넵튠', mode: 'dorian', cat: 'gas',
       land: [
         '대기 위층을 짙은 연무가 덮고 있어서, 망원경으로는 그 아래를 들여다볼 수 없습니다(GJ 1214 b가 그렇습니다).',
         '두꺼운 수소 대기 아래에는 엄청난 압력에 눌린 뜨거운 물이나 마그마 바다가 숨어 있을 수 있습니다.',
@@ -271,7 +253,7 @@
     },
     {
       // 폭주 온실: 생명 가능 영역보다 안쪽에서 대기를 지킨 암석 행성. 금성처럼 황산 구름이 빈틈없이 덮는다
-      id: 'venus', name: '짙은 구름의 금성형 행성', weight: 0, mode: 'phrygian', cat: 'fire',
+      id: 'venus', name: '짙은 구름의 금성형 행성', mode: 'phrygian', cat: 'fire',
       land: [
         '황산 구름이 행성 전체를 빈틈없이 덮고 있어서, 우주에서는 지표가 전혀 보이지 않습니다.',
         '두꺼운 이산화탄소 대기의 온실 효과 때문에, 구름 아래 지표는 납이 녹을 만큼 뜨거울 수 있습니다.',
@@ -289,7 +271,7 @@
     },
     {
       // 우주 해안선 너머: 대기를 잃은 암석 행성. 수성·달처럼 크레이터투성이의 어두운 회색
-      id: 'airless', name: '대기 없는 잿빛 암석 행성', weight: 0, mode: 'aeolian', cat: 'barren',
+      id: 'airless', name: '대기 없는 잿빛 암석 행성', mode: 'aeolian', cat: 'barren',
       land: [
         '대기가 없어서 하늘은 낮에도 검고, 해가 떠 있어도 별이 보입니다.',
         '운석을 막아 줄 대기가 없어서, 크고 작은 크레이터가 지표를 빈틈없이 덮고 있습니다.',
@@ -680,13 +662,15 @@
     }
     if (sc && STAR_NOTE[sc.kind]) out.push(STAR_NOTE[sc.kind]);
     if (p.hostEst) out.push('미세중력렌즈로 발견된 행성이라 모항성의 빛은 관측되지 않았습니다. 이런 모항성은 대부분 적색왜성이라, 질량으로 온도와 크기를 어림했습니다.');
-    if (isPulsar(p)) out.push('모항성은 초신성 폭발 뒤에 남은 펄서(지름 20km 남짓의 중성자별)입니다. 보이는 빛을 거의 내지 않아서, 하늘에는 해 대신 희미한 점 하나만 떠 있습니다(그림에서는 행성이 보이도록 밝기를 크게 올렸습니다).');
+    if (isPulsar(p)) out.push('모항성은 초신성 폭발 뒤에 남은 펄서(지름 20km 남짓의 중성자별)입니다. 보이는 빛을 거의 내지 않아서, 하늘에는 해 대신 희미한 점 하나만 떠 있습니다(그림에서는 행성이 보이도록 밝기를 크게 올렸습니다).'
+      + (o.steady ? ' 대신 펄서가 내뿜는 고에너지 입자 바람이 쉬지 않고 쏟아져, 대기가 남아 있다면 극지방에 청보랏빛 오로라가 늘 일렁일 것으로 봅니다(그림은 대기가 옅게 남아 있다고 가정했습니다).' : ''));
     if (flareStar(p)) {
       // 오로라는 대기의 기체가 빛나는 것이라 대기가 없는 행성에는 생기지 않는다 (그림도 같다)
       const noAir = atmosphere(p).kind === 'none';
       out.push(noAir
         ? '적색왜성은 표면에서 플레어(갑작스러운 폭발)가 자주 일어나, 가끔 모항성이 순간적으로 밝아집니다. 이 행성에는 대기가 없어 오로라는 생기지 않습니다.'
-        : '적색왜성은 표면에서 플레어(갑작스러운 폭발)가 자주 일어납니다. 가끔 모항성이 순간적으로 밝아지고, 뒤이어 행성의 극지방에 오로라가 번집니다(실제로는 몇 시간에서 며칠 뒤이지만 화면에서는 몇 초로 줄였습니다).');
+        : `적색왜성은 표면에서 플레어(갑작스러운 폭발)가 자주 일어납니다. 가끔 모항성이 순간적으로 밝아지고, 뒤이어 행성의 극지방에 ${o.aurora ? o.aurora + ' ' : ''}오로라가 번집니다(실제로는 몇 시간에서 며칠 뒤이지만 화면에서는 몇 초로 줄였습니다).`
+          + (o.aurora ? ` 오로라의 색은 대기의 기체가 정합니다(산소는 초록, 질소는 청보라, 수소는 분홍).` : ''));
     }
     // 레일리 산란: 짧은 파장일수록 강하게 흩어진다(λ⁻⁴). 붉은 별의 빛에는 푸른빛이 적어서 하늘이 덜 파랗다
     if (o.rayleigh && p.teff != null && p.teff < 4800) out.push('하늘빛은 별빛의 색을 따릅니다. 푸른빛을 거의 내지 않는 붉은 별 아래라서, 대기가 흩뜨리는 빛도 지구의 파란 하늘보다 희뿌연 색에 가깝습니다(그림의 대기 빛도 이 계산을 따랐습니다).');
@@ -792,6 +776,8 @@
     // 대기가 없으면 대기 광륜·구름·도시 불빛·유성·오로라도 없다. 용암 행성에는 녹은 암석의 얇은 증기만 남는다
     v.airless = atm === 'none' && v.type !== 1;
     if (v.airless) { v.atmoStr = biome.id === 'lava' ? v.atmoStr * 0.15 : 0; v.clouds = 0; v.city = 0; }
+    // 도시 불빛은 상상이다: 생명 가능한 행성에만 두고, 화면에서는 '상상 속 도시 불빛' 버튼을 눌렀을 때만 그린다
+    if (!['temperate', 'ocean'].includes(physClass(p))) v.city = 0;
     else if (atm === 'thin' && v.type !== 1) { v.atmoStr *= 0.35; v.clouds = Math.min(v.clouds, 0.05); }
     v.lightCol = starColor(p.teff).map((c) => 0.45 + 0.55 * c);
     v.lightK = 1; v.starGlow = 1; // 행성을 비추는 빛의 세기, 하늘에 보이는 모항성의 밝기
@@ -825,7 +811,14 @@
     // 오로라 색은 대기의 기체가 정한다: 암석 행성은 산소의 초록빛, 가스 행성은 수소의 분홍빛
     v.flare = flareStar(p);
     v.aurora = !v.airless;
-    v.auroraCol = v.type === 1 ? [1.0, 0.38, 0.8] : [0.35, 1.0, 0.55];
+    /* 오로라 색은 대기의 기체가 정한다. 산소 원자의 초록(557.7nm): 산소가 많은 대기(생명이 있는 행성)와
+     * 이산화탄소 대기(쪼개진 산소 원자 — 화성의 초록 오로라, 금성의 초록 대기광). 질소뿐인 대기는 N₂⁺의 청보라(391.4·427.8nm),
+     * 수소 대기는 Hα·Hβ의 분홍, 용암 행성의 암석 증기는 나트륨의 주황 */
+    const AUR = { h: [[1.0, 0.38, 0.8], '분홍빛'], o: [[0.35, 1.0, 0.55], '초록빛'], n: [[0.55, 0.42, 1.0], '청보랏빛'], na: [[1.0, 0.62, 0.25], '주황빛'] };
+    const ak = biome.id === 'venus' ? 'o' : v.type === 1 ? 'h' : biome.id === 'lava' ? 'na' : biome.id === 'glacier' || biome.id === 'crystal' ? 'n' : 'o';
+    v.auroraCol = AUR[ak][0]; v.auroraName = AUR[ak][1];
+    // 펄서의 입자 바람은 쉬지 않으므로 오로라도 늘 켜져 있다
+    if (biome.id === 'crystal') { v.airless = false; v.aurora = true; v.auroraSteady = 0.9; }
     // 행성에서 본 모항성의 실제 겉보기 반지름 (라디안, 태양 반지름 = 0.00465 AU)
     // 가까이 붙은 거대한 별도 '아주 멀리 있는 광원'으로 느껴지도록 큰 쪽은 눌러서 그린다 (태양 크기는 그대로).
     // 펄서(중성자별)는 지름이 수십 km라 점으로 그린다
@@ -959,8 +952,10 @@
     }
 
     // 고리와 위성 (외계행성의 고리·위성은 아직 관측된 적이 없어서 상상으로 그린다)
-    const ringChance = { gas: 0.75, icegiant: 0.6, crystal: 0.5 }[biome.id] || 0.22;
-    const hasRing = rarity.topPct < 5 || rv.chance(ringChance);
+    // 태양계의 거대 행성은 모두 고리가 있지만 눈에 띄게 밝은 것은 토성뿐이다. 암석 행성의 고리는 알려진 예가 없다
+    const ringChance = { gas: 0.4, icegiant: 0.3, subneptune: 0.1 }[biome.id] || 0.04;
+    // 예전에는 희귀도 상위 5%면 무조건 고리를 그렸다. 그 행성들은 rv를 쓰지 않았으므로(뒤따르는 난수 순서를 지키려고) 별도 스트림으로 뽑는다
+    const hasRing = rarity.topPct < 5 ? root.fork('ring').chance(ringChance) : rv.chance(ringChance);
     if (hasRing) {
       const inner = rv.range(1.35, 1.6);
       v.ring = {
@@ -972,22 +967,35 @@
 
     const moonDraw = rv.weighted([{ n: 0, weight: 28 }, { n: 1, weight: 35 }, { n: 2, weight: 23 }, { n: 3, weight: 14 }]).n;
     v.moons = [];
-    const base = Math.max(v.ring ? v.ring.outer + 0.22 : 0, 1.6);
+    /* 위성은 로슈 한계(행성의 조석에 부서지는 거리) 바깥에만 있을 수 있다: 2.44 × 행성 반지름 × (행성 밀도 ÷ 위성 밀도)^⅓.
+     * 위성 밀도는 거대 행성의 얼음 위성 2 g/cm³, 암석 행성의 달 3.3 g/cm³ (달). 그림에서는 실제보다 훨씬 가깝게 그린다(달은 지구 반지름의 60배) */
+    const rho = bulk(p).density, rhoM = v.type === 1 ? 2 : 3.3;
+    const roche = Math.min(3.2, Math.max(2, 2.44 * Math.cbrt(rho / rhoM)));
+    const base = Math.max(v.ring ? v.ring.outer + 0.22 : 0, roche);
     for (let i = 0; i < moonDraw; i++) {
       const dist = base + i * 0.34 + rv.range(0, 0.22);
       v.moons.push({
-        r: rv.range(0.07, 0.15), dist,
+        // 거대 행성의 위성은 행성에 비해 아주 작다 (가니메데는 목성 반지름의 0.037배, 타이탄은 토성의 0.044배). 달은 지구의 0.27배
+        r: rv.range(0.07, 0.15) * (v.type === 1 ? 0.3 : 1), dist,
         speed: (0.32 / Math.pow(dist, 1.5)) * rv.range(0.8, 1.2),
         phase: rv.range(0, Math.PI * 2), incl: rv.range(-0.28, 0.28),
         color: hsl(rv.range(0, 360), rv.range(0, 0.18), rv.range(0.55, 0.75)),
       });
     }
-    // 조석 고정될 만큼 별에 가까우면 별의 중력이 너무 강해 고리나 달을 오래 붙잡아 둘 수 없다.
-    // (다른 행성의 모습이 바뀌지 않도록 난수는 똑같이 쓰고 결과만 지운다)
+    // 조석 고정될 만큼 별에 가까우면 별의 조석 때문에 달은 궤도를 잃고(Barnes & O'Brien 2002), 고리는 별빛에 흩어진다.
+    // 그 밖의 행성도 달은 힐 반경(행성의 중력이 별의 중력을 이기는 범위)의 약 절반 안쪽에서만 오래 돈다
+    // (Domingos et al. 2006: 0.49 × (1 − 1.03e) × 힐 반경). (다른 행성의 모습이 바뀌지 않도록 난수는 똑같이 쓰고 결과만 지운다)
+    const mStar = p.smass != null ? p.smass : p.teff != null && p.teff < 3900 && !(p.srad >= 2) ? 0.35 : 1;
+    const hillR = p.a != null ? (p.a * 23455 / p.rade) * Math.cbrt(p.masse / 332946 / (3 * mStar)) : Infinity; // 행성 반지름 단위
+    const moonMax = 0.49 * Math.max(0, 1 - 1.03 * (p.ecc || 0)) * hillR;
+    const hadMoons = v.moons.length > 0;
     if (v.locked) { v.ring = null; v.moons = []; }
+    v.moons = v.moons.filter((m) => m.dist < moonMax);
+    v.moonLost = hadMoons && !v.moons.length;
     const moonCount = v.moons.length;
     const moonExt = v.moons.length ? v.moons[v.moons.length - 1].dist + 0.15 : 0;
-    v.extent = Math.max(1.28, v.ring ? v.ring.outer * 1.03 : 0, Math.min(moonExt, 2.9));
+    // 위성은 대부분 가로로 오가므로, 위성 때문에 행성이 너무 작아지지 않게 화면 범위는 2.3배까지만 넓힌다
+    v.extent = Math.max(1.28, v.ring ? v.ring.outer * 1.03 : 0, Math.min(moonExt, 2.3));
 
     const planet = p.name;
     const moonNames = v.moons.map(() => moonName(rl));
@@ -1008,7 +1016,7 @@
     const landPool = biome.land.filter((s) => typeof s === 'string' || (s.hot ? p.eqt > 330 : s.cold ? p.eqt < 273 : true)).map((s) => s.t || s);
     const landSentences = rl.sample(landPool, 2).map((s) => fill(s, vars));
     let moonLine;
-    if (moonCount === 0) moonLine = v.locked ? '별에 너무 가까워 달을 붙잡아 둘 수 없어서 달은 없습니다.' : '달은 없습니다.';
+    if (moonCount === 0) moonLine = v.moonLost || v.locked ? '별에 너무 가까워 달을 붙잡아 둘 수 없어서 달은 없습니다.' : '달은 없습니다.';
     else if (moonCount === 1) moonLine = `${josa(moonNames[0], '이라는/라는')} 달 하나가 곁을 돕니다.`;
     else moonLine = `달은 ${moonNames.join(', ')}, 모두 ${moonCount}개입니다.`;
     // 생명 가능 영역 안에서 두꺼운 대기를 지킨 행성만 (물리 판정과 같은 조건)
@@ -1028,7 +1036,7 @@
     const lore = [
       { title: '발견', text: discovery, real: true },
       { title: '환경', text: environment(p), real: true },
-      { title: '하늘', text: skyText(p, { rayleigh: v.rayleigh, shrunk: v.starAngReal > v.starAng * 1.3 }) || '모항성에 대한 자료가 아직 부족합니다.', real: true, sky: true },
+      { title: '하늘', text: skyText(p, { rayleigh: v.rayleigh, shrunk: v.starAngReal > v.starAng * 1.3, aurora: v.aurora && v.auroraName, steady: !!v.auroraSteady }) || '모항성에 대한 자료가 아직 부족합니다.', real: true, sky: true },
       { title: '풍경', text: `${landSentences.join(' ')} ${moonLine}` },
       { title: '생명', text: lifeText },
       { title: '현상', text: phenomenon },

@@ -175,6 +175,24 @@ for (let i = 0; i < E.rows.length; i += 3) {
   }
 }
 
+// 상상 요소: 고리는 희귀도와 무관하게 드물고, 위성은 로슈 한계 밖·힐 반경 안에, 거대 행성의 위성은 작게, 도시 불빛은 생명 가능한 행성에만
+{
+  let top = 0, topRing = 0, rings = 0;
+  for (let i = 0; i < E.rows.length; i++) {
+    const w = NV.genesis('d' + i, i), v = w.visual;
+    if (v.ring) rings++;
+    if (w.rarity.topPct < 5) { top++; if (v.ring) topRing++; }
+    const bad = v.moons.find((m) => m.dist < 2 || (v.type === 1 && m.r > 0.046));
+    if (bad) { assert(false, `${w.planet}: 위성 거리 ${bad.dist.toFixed(2)} · 크기 ${bad.r.toFixed(3)}`); break; }
+    if (v.city > 0 && !['ocean', 'garden', 'alien', 'coral'].includes(w.biome.id)) { assert(false, `${w.planet}: ${w.biome.id}에 도시 불빛`); break; }
+    if (w.biome.id === 'crystal' && !(v.auroraSteady && v.crater)) { assert(false, `${w.planet}: 펄서 행성은 어두운 크레이터 행성 + 늘 켜진 오로라`); break; }
+  }
+  assert(topRing / top < 0.5 && rings / E.rows.length < 0.2, `고리 비율: 전체 ${rings}, 상위 5% 중 ${topRing}/${top}`);
+  assert(at('HD 189733 b').visual.moons.length === 0, '뜨거운 목성은 위성이 없다');
+  const aur = (n) => at(n).visual.auroraName;
+  assert(aur('HD 189733 b') === '분홍빛', '가스 행성의 오로라는 수소의 분홍빛');
+}
+
 console.log('생물군계 분포:', counts);
 console.log('희귀도 분포:', rar);
 const s = NV.genesis('세종대왕');
