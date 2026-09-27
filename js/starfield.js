@@ -18,6 +18,8 @@
   const nearness = (d) => 1 - cdf(d);
   const SKY_RESPAWN = 36; // 이보다 행성에 가까워진 별은 다른 곳에서 다시 나타난다
   const SKY_DRIFT = 0.05; // 화면 왼쪽으로 흐르는 속도 (공간 단위/초): 가장 가까운 별도 초당 1픽셀 안팎
+  const WARP_K = 2.4;     // 워프 세기 1일 때 별이 다가오는 속도 (워프 화면의 깊이 z 단위/초)
+  const TAIL_T = 0.028;   // 꼬리 길이: 이 시간(초) 전의 위치까지 (워프 화면과 같다)
 
   const vadd = (a, b) => [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
   const vscale = (a, k) => [a[0] * k, a[1] * k, a[2] * k];
@@ -95,7 +97,10 @@
     /* 행성에 도착하면 지나온 별들을 행성 주변 공간(월드 좌표)의 점으로 바꾼다.
      * 행성 셰이더와 같은 카메라(시점 회전 V, 초점거리, 화면 이동)로 투영하므로 시점을 돌리면 함께 돌고,
      * 별들은 카메라 기준 항상 같은 방향(화면 왼쪽)으로 아주 천천히 평행이동한다. 시점을 돌려도 흐르는 방향은 그대로이고,
-     * 먼 별일수록 느리게 움직인다(시차). */
+     * 먼 별일수록 느리게 움직인다(시차).
+     * 바꾸는 순간에도 워프는 아직 잦아드는 중이라 별들이 다가오고 있다. 그 움직임을 끊지 않도록, 지나온 별마다
+     * 워프 화면의 깊이 z를 이어서 줄여 가며 카메라 쪽으로 옮긴다(깊이가 z에 비례하면 화면에서 퍼져 나가는 속도가 워프와 같다).
+     * 워프가 0이 되면 멈추고, 꼬리도 속도에 맞춰 짧아진다 */
     _enterSky(view) {
       const W = this.w, H = this.h, F = view.focal, V = view.V, [sx, sy] = view.shift, C = view.cam;
       const cx = W / 2, cy = H / 2, scale = Math.max(W, H) * 0.5;
@@ -116,6 +121,8 @@
         const pv = [ux / l * t, uy / l * t, C - F / l * t];
         const st = this._skyStar(this._toWorld(V, pv), s);
         st.near0 = 1 - s.z; st.blend = 0; // 워프 화면에서의 가까움(밝기·크기)에서 시작
+        // 카메라에서 별까지(월드 좌표). 깊이 z가 z0에서 z로 줄면 이 벡터도 z/z0배가 된다
+        st.z0 = st.z = s.z; st.rel = this._toWorld(V, [pv[0], pv[1], pv[2] - C]);
         sky.push(st);
       });
       // 화면 밖의 나머지 공간도 같은 밀도로 채운다
@@ -246,9 +253,23 @@
       const ctx = this.ctx, view = this.view, V = view.V;
       // 카메라의 오른쪽 방향(월드 좌표)의 반대로 이동 → 화면에서는 늘 왼쪽으로 흐른다
       const k = SKY_DRIFT * dt, mx = -V[0] * k, my = -V[1] * k, mz = -V[2] * k;
+      const sp = this.warp * WARP_K; // 잦아드는 워프의 남은 속도
       for (const st of this.sky) {
         const p = st.p;
         p[0] += mx; p[1] += my; p[2] += mz;
+        let tail = null;
+        if (st.z != null) {
+          if (sp <= 0) st.z = null; // 워프가 끝났다: 그 자리에 머문다
+          else {
+            // 워프 화면처럼 깊이를 줄여 카메라 쪽으로 다가온다. 너무 가까워지면(워프에서 새 별로 바뀌던 깊이) 거기서 멈춘다
+            const z1 = Math.max(0.06, st.z - sp * dt), f = (z1 - st.z) / st.z0;
+            p[0] += st.rel[0] * f; p[1] += st.rel[1] * f; p[2] += st.rel[2] * f;
+            st.z = z1; st.near0 = 1 - z1;
+            // 꼬리: TAIL_T초 전 위치 (워프 화면과 같은 길이 규칙)
+            const g = (Math.min(1.2, z1 + sp * TAIL_T) - z1) / st.z0;
+            tail = [p[0] + st.rel[0] * g, p[1] + st.rel[1] * g, p[2] + st.rel[2] * g];
+          }
+        }
         // 흘러가다 행성에 너무 가까워진 별은 서서히 사라지고, 다른 곳에서 서서히 나타난다 (분포 유지).
         // 경계(36)를 카메라가 가장 멀리 물러났을 때(약 25)보다 넉넉히 바깥에 두어 별이 카메라를 스치지 않는다
         const r2 = p[0] * p[0] + p[1] * p[1] + p[2] * p[2];
@@ -260,15 +281,24 @@
         if (st.fade < 1) st.fade = Math.min(1, st.fade + dt * 0.4);
         const q = this._project(p, view);
         if (!q) continue;
-        let near = nearness(q[2]);
+        let near = nearness(q[2]), dim = 1;
         if (st.blend < 1) {
           st.blend = Math.min(1, st.blend + dt / 1.5);
           const k = st.blend * st.blend * (3 - 2 * st.blend);
           near = st.near0 + (near - st.near0) * k;
+          dim = 0.75 + 0.25 * k; // 워프 화면의 별은 반짝임 때문에 평균 0.75배로 보였다: 그 밝기에서 천천히 옮겨 간다
         }
         // 우주에는 대기가 없어 별이 반짝이지 않는다 (셰이더가 그리는 먼 별들도 같다)
-        const a = Math.min(1, 0.35 + near * 0.9) * edge * st.fade;
+        const a = Math.min(1, 0.35 + near * 0.9) * edge * st.fade * dim;
         const size = Math.min(3.4 * this.dpr, st.s * (0.5 + near * 1.6) * this.dpr);
+        const qt = tail && this._projectRaw(tail, view);
+        if (qt && Math.hypot(qt[0] - q[0], qt[1] - q[1]) > size * 0.6) {
+          // 아직 다가오는 중: 워프처럼 짧은 빛줄기(워프 화면처럼 0.75배 밝기). 속도가 줄수록 짧아져 점이 된다
+          ctx.strokeStyle = `rgba(${st.col},${a * (0.75 + 0.25 * (1 - Math.min(1, sp / 0.19)))})`;
+          ctx.lineWidth = size; ctx.lineCap = 'round';
+          ctx.beginPath(); ctx.moveTo(q[0], q[1]); ctx.lineTo(qt[0], qt[1]); ctx.stroke();
+          continue;
+        }
         ctx.fillStyle = `rgba(${st.col},${a})`;
         if (size < 1.8 * this.dpr) ctx.fillRect(q[0] - size / 2, q[1] - size / 2, size, size);
         else { ctx.beginPath(); ctx.arc(q[0], q[1], size / 2, 0, Math.PI * 2); ctx.fill(); }
@@ -278,7 +308,7 @@
     frame(dt, t) {
       const ctx = this.ctx, W = this.w, H = this.h;
       this.warp += (this.warpTarget - this.warp) * Math.min(1, dt * 2.2);
-      if (this.warpTarget === 0 && this.warp < 0.02) this.warp = 0;
+      if (this.warpTarget === 0 && this.warp < 0.002) this.warp = 0; // 충분히 느려진 뒤에 멈춘다 (도착한 하늘의 별들이 이 속도로 잦아든다)
       this.mouse.x += (this.mouse.tx - this.mouse.x) * Math.min(1, dt * 3);
       this.mouse.y += (this.mouse.ty - this.mouse.y) * Math.min(1, dt * 3);
       let changed = false;
