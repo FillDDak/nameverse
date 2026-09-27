@@ -33,7 +33,7 @@ uniform vec4 uStar2; uniform vec3 uStar2Col; // 두 번째 해: 방향(시점 �
 uniform vec4 uComp[2], uCompC[2];            // 멀리 떨어진 동반성: 방향 + 밝기, 색
 uniform vec2 uFlare; uniform vec3 uAurora; // 플레어: x 모항성 밝아짐, y 오로라 세기 / 오로라 색
 uniform vec3 uLock; // 조석 고정: x 여부, y 얼음 경계(별을 마주한 정도 cos θ가 이보다 작으면 얼음), z 모항성 원반의 실제 겉보기 반지름의 sin
-uniform vec3 uGal, uGalC; uniform vec4 uSun; // 은하 북극·은하 중심 방향(월드 좌표), 우리 태양: 방향(시점 좌표) + 밝기
+uniform vec3 uGal, uGalC; uniform vec4 uSun; uniform float uSkyK; // uSkyK: 먼 하늘이 나타난 정도 (도착 연출) // 은하 북극·은하 중심 방향(월드 좌표), 우리 태양: 방향(시점 좌표) + 밝기
 uniform vec4 uThP; uniform vec3 uThA, uHot; // 열복사 (genesis.js): 온도 분포 매개변수와 모드(w), 채널별 밝기 계수, 가장 뜨거운 곳의 방향
 uniform float uCrater; // 크레이터 (대기 없는 암석 행성)
 uniform vec4 uCmH, uCmI, uCmD; uniform vec3 uCmCol; // 혜성: 머리(xy, 크기, 밝기), 이온 꼬리 끝(xy, 범위, 씨앗), 먼지 꼬리 베지어(조절점, 끝)
@@ -636,6 +636,7 @@ void main(){
     float x = length(rdS - uSun.xyz)/apS;
     sky += vec3(1.0, 0.94, 0.84)*uSun.w*(exp(-x*x/1.3)*1.8 + 0.06*pow(1.0 + x/2.5, -2.2));
   }
+  sky *= uSkyK;
   col += sky*(1.0 - alpha);
   alpha += min(1.0, max(sky.r, max(sky.g, sky.b)))*(1.0 - alpha);
   // 두 번째 해와 동반성의 빛번짐
@@ -1017,7 +1018,7 @@ void main(){
       if (sky) { f3('uGal', sky.toW(GAL_N)); f3('uGalC', sky.toW(GAL_C)); }
       // 겉보기 등급 m → 밝기: 6등급(맨눈 한계)이 가장 희미한 배경 별 정도가 되도록
       f4('uSun', sunW ? [...M.vec(st.V, sunW), Math.min(2.2, 0.3 * Math.pow(10, -0.4 * (v.sun.mag - 4)))] : [0, 0, 1, 0]);
-      f1('uSkyFocal', st.skyFocal);
+      f1('uSkyFocal', st.skyFocal); f1('uSkyK', this.skyK != null ? this.skyK : 1);
       gl.uniformMatrix3fv(u.uView || null, false, new Float32Array(st.V)); f3('uLightCol', v.lightCol || [1, 0.96, 0.9]); f3('uSeedOff', v.seedOff);
       f1('uLightK', v.lightK != null ? v.lightK : 1); f1('uStarGlow', v.starGlow != null ? v.starGlow : 1);
       gl.uniform1i(u.uType || null, v.type);

@@ -324,6 +324,10 @@
       // 성운은 행성에 도착하기 시작하는 순간(워프가 잦아드는 동안)부터 은하수에게 자리를 내준다.
       // 워프가 끝난 뒤에 흐려지면, 워프가 잦아들며 성운이 먼저 짙어졌다가 사라지는 안개처럼 보인다
       this.skyFade = this.view ? Math.min(1, (this.skyFade || 0) + dt * 1.5) : Math.max(0, (this.skyFade || 0) - dt * 1.5);
+      // 셰이더가 그리는 먼 하늘(배경 별·은하수·이웃 행성)은 지나온 별들이 하늘에 자리 잡은 뒤부터 2초에 걸쳐 나타난다.
+      // 워프 중에 먼저 나타나면 날아가는 빛줄기 뒤에 멈춘 별밭이 겹쳐 보여, 도착하기도 전에 별이 서 있는 것처럼 보인다
+      const sk = this.sky ? Math.min(1, (this._skyT = (this._skyT || 0) + dt / 2)) : (this._skyT = 0);
+      this.skyK = sk * sk * (3 - 2 * sk);
 
       ctx.fillStyle = '#03030a';
       ctx.fillRect(0, 0, W, H);
