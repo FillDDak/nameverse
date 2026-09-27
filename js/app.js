@@ -428,8 +428,9 @@
         </div>
         <h3 class="p-h reveal" ${d()}>관측 데이터 <small>NASA Exoplanet Archive</small></h3>
         <dl class="p-stats reveal" ${d()}>
-          ${w.stats.map((s) => `<div class="${s.wide ? 'wide' : ''}"><dt>${esc(s.k)}</dt><dd>${esc(s.v)}</dd></div>`).join('')}
+          ${w.stats.map((s) => `<div class="${s.wide ? 'wide' : ''}"><dt>${esc(s.k)}</dt><dd>${esc(s.v)}${s.sub ? `<small>${esc(s.sub)}</small>` : ''}</dd></div>`).join('')}
         </dl>
+        ${w.statNotes && w.statNotes.length ? `<div class="p-notes reveal" ${d()}>${w.statNotes.map((t) => `<p>${esc(t)}</p>`).join('')}</div>` : ''}
         <div class="p-lore">
           ${w.lore.filter((s) => s.real).map((s) => `<section class="reveal" ${d()}><h4>${esc(s.title)}</h4><p>${esc(s.text)}</p>${s.sky && w.visual.starAngReal > 0.001
             ? `<button class="ghost small star-btn" data-act="star" aria-pressed="false">${STAR_BTN[0]}</button>` : ''}</section>`).join('')}

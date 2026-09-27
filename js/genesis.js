@@ -1053,14 +1053,24 @@
     // 직접 촬영된 젊은 행성은 '평형 온도'로 행성 자체의 온도가 기록된 경우가 있다: 별빛만 받을 때의 값을 따로 보여 준다
     const eqT = sl2 ? sl2.star : p.eqt;
     const eqTxt = eqT != null ? `${tempC(eqT)} °C${est(p.eqtEst || (sl2 && sl2.measured))}` : '미상';
+    // 숫자를 오해하지 않도록 붙이는 설명 (관측 데이터 표 아래)
+    const statNotes = [
+      eqT != null && (p.eqtEst
+        ? '평형 온도: 대기가 없다고 보고 받는 별빛만으로 계산한 온도로, 이 행성은 반사율 0.3을 가정해 계산했습니다. 실제 지표는 온실 효과로 더 따뜻할 수 있습니다.'
+        : '평형 온도: 대기가 없다고 보고 받는 별빛만으로 계산한 온도입니다. NASA 값은 논문마다 가정한 반사율(0이나 0.3 등)과 열 분배가 달라 수십 도 차이가 날 수 있고, 실제 지표는 온실 효과로 더 따뜻할 수 있습니다.'),
+      p.esi != null && '지구 유사도(ESI): 반지름과 받는 빛의 양 두 가지만으로 계산한 간이 지수(0~1)입니다. 대기나 물이 있는지는 반영하지 않습니다.',
+    ].filter(Boolean);
     const stats = [
       { k: '지름', v: `지구의 ${num(p.rade, 2)}배 · ${fmt(km)} km${est(p.radEst)}`, short: `${fmt(km)} km` },
       { k: '질량', v: `${p.massEst === 1 ? '최소 ' : ''}${massText}${est(p.massEst === 2)}` },
       { k: '밀도', v: `${bMin}${num(bk.density, 2)} g/cm³${bEst}` },
-      { k: '표면 중력', v: `${bMin}지구의 ${num(bk.g, 2)}배${bEst}` },
+      // 중력이 N배면 몸무게도 N배로 느껴진다. 가스 행성은 딛을 땅이 없어 구름 꼭대기(1기압) 높이의 값이다
+      { k: '표면 중력', v: `${bMin}지구의 ${num(bk.g, 2)}배${bEst}`,
+        sub: `${v.type === 1 ? '구름 꼭대기 기준 · ' : ''}몸무게 60kg → ${bMin}${fmt(60 * bk.g)}kg` },
       { k: '탈출 속도', v: `${bMin}초속 ${num(bk.vesc, 1)} km${bEst}` },
       { k: '공전 주기', v: periodText(p.per) || '미상' },
-      { k: '궤도 반지름', v: p.a != null ? `${num(p.a, 3)} AU` : '미상' },
+      // 궤도는 타원이라 '반지름'이 아니라 긴반지름(가장 먼 곳과 가장 가까운 곳 거리의 평균)이다
+      { k: '궤도 긴반지름', v: p.a != null ? `${num(p.a, 3)} AU` : '미상' },
       { k: '평형 온도', v: eqTxt, short: eqT != null ? `${tempC(eqT)} °C` : '미상' },
       { k: '지구 유사도', v: p.esi != null ? p.esi.toFixed(2) : '미상' },
       { k: '거리', v: p.dist != null ? `${fmt(p.dist)} 광년` : '미상' },
@@ -1089,7 +1099,7 @@
       owner, key: forceIndex != null ? `${key}@${exoIndex}` : key, planet, catalog: p.host, exo: p, exoIndex,
       bday: bday ? birthdayInfo(exoIndex, bday.n, bday.date) : null,
       biome: { id: biome.id, name: biome.name, cat: biome.cat },
-      rarity, visual: v, stats, lore, proverb, tags, role, constellation: p.con, coords: { ra: raText(p.ra), dec: decText(p.dec) },
+      rarity, visual: v, stats, statNotes, lore, proverb, tags, role, constellation: p.con, coords: { ra: raText(p.ra), dec: decText(p.dec) },
       moonNames, music, accent: toCss(v.atmoUI), accentRgb: v.atmoUI,
     };
   }

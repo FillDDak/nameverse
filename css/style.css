@@ -189,6 +189,9 @@ button { cursor: pointer; }
 .p-stats div.wide { grid-column: span 2; }
 .p-stats dt { font-size: 11px; color: var(--dim); margin-bottom: 3px; }
 .p-stats dd { margin: 0; font-size: 15px; font-weight: 600; }
+.p-stats dd small { display: block; margin-top: 3px; font-size: 11.5px; font-weight: 500; color: var(--dim); }
+.p-notes { margin: -8px 0 18px; }
+.p-notes p { margin: 0 0 6px; font-size: 12px; line-height: 1.6; color: var(--dim); }
 
 .p-tags { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 16px; }
 .p-tags span { font-size: 12px; padding: 4px 10px; border-radius: 999px; background: rgba(var(--accent-rgb), 0.12); color: rgba(var(--accent-rgb), 1); filter: brightness(1.3); }
