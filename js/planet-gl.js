@@ -790,6 +790,7 @@ void main(){
   // 축소 배율의 로그에 대해 처음엔 빠르게, 끝으로 갈수록 천천히(멈추지는 않게) 물러나 최대 축소(0.06)에서 약 25에 이른다
   const starCam = (zoom, camDist) => (zoom >= 1 ? CAM + (camDist - CAM) * STAR_DOLLY : CAM + 8 * Math.log(1 + 3.75 * Math.log(1 / zoom)));
   const BASE_PITCH = 0.3;
+  const ARRIVE = 1.6; // 행성이 다가와 멈추기까지(초). 크기는 1 − (1 − t/ARRIVE)⁴로 커진다
 
   /* ───────────── 렌더러 ───────────── */
   class PlanetRenderer {
@@ -908,7 +909,7 @@ void main(){
       const R = M.mul(tiltM, M.ry(spinA));
       const RC = M.mul(tiltM, M.ry(spinA * 1.2 + time * v.cloudSpeed));
       const age = time - slot.appearAt;
-      const k = Math.min(1, Math.max(0, age / 1.6));
+      const k = Math.min(1, Math.max(0, age / ARRIVE));
       const ease = 1 - Math.pow(1 - k, 4);
       const camDist = CAM / this.zoom;
       const focal = (vp.fit * CAM / v.extent) * (0.02 + 0.98 * ease);
@@ -1164,6 +1165,13 @@ void main(){
         return { name: s.name, kind: s.kind, rho: (s.rade * R_EARTH_AU) / dist,
           dir: M.vec(V, norm(d)), light: M.vec(V, norm([-Y[0], -Y[1], -Y[2]])) };
       });
+    }
+
+    /* 첫 행성이 다가오는 진행도 0~1 (별밭이 같은 움직임으로 감속하도록). 셰이더가 준비되어 처음 그려지기 전에는 0 */
+    arrival(time) {
+      const s = this.slots[0];
+      if (!s) return null;
+      return s.pending ? 0 : Math.min(1, Math.max(0, (time - s.appearAt) / ARRIVE));
     }
 
     // 2D 별밭이 행성과 같은 카메라로 하늘을 그리도록: 시점 회전, 하늘 초점거리, 화면 이동

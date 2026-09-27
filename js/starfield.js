@@ -17,6 +17,7 @@
   const invCdf = (u) => SKY_NEAR * Math.pow(3, Math.log(1 + u * GROW_TOTAL) / Math.log(SKY_GROW));
   const nearness = (d) => 1 - cdf(d);
   const SKY_RESPAWN = 36; // 이보다 행성에 가까워진 별은 다른 곳에서 다시 나타난다
+  const SETTLE = 10;      // 도착한 별이 날아올 때의 밝기·반짝임에서 하늘의 별로 옮겨 가는 시간(초)
   const SKY_DRIFT = 0.05; // 화면 왼쪽으로 흐르는 속도 (공간 단위/초): 가장 가까운 별도 초당 1픽셀 안팎
 
   const vadd = (a, b) => [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
@@ -108,7 +109,8 @@
       }
       // 워프 중 화면에 보이던 별은 원근 때문에 대부분 먼 별이다. 그 깊이를 그대로 쓰면 처음 화면 영역만
       // 가까운 밝은 별이 없어 시점을 돌렸을 때 네모난 경계가 보인다. 그래서 가까운 순서는 지키면서
-      // 깊이를 하늘 전체와 같은 분포의 순위대로 다시 매기고, 달라진 밝기·크기는 천천히 옮겨 간다
+      // 깊이를 하늘 전체와 같은 분포의 순위대로 다시 매기고, 달라진 밝기·크기는 SETTLE초에 걸쳐 아주 천천히 옮겨 간다
+      // (빨리 옮기면 별이 멈춘 직후 하늘 전체가 눈에 띄게 밝아진다)
       cap.sort((a, b) => a.s.z - b.s.z);
       cap.forEach(({ s, x, y }, i) => {
         const ux = (x - cx) / H - sx, uy = (cy - y) / H - sy, l = Math.hypot(ux, uy, F);
@@ -116,6 +118,7 @@
         const pv = [ux / l * t, uy / l * t, C - F / l * t];
         const st = this._skyStar(this._toWorld(V, pv), s);
         st.near0 = 1 - s.z; st.blend = 0; // 워프 화면에서의 가까움(밝기·크기)에서 시작
+        st.twk = 0; // 날아올 때의 반짝임에서 시작해 천천히 반짝이지 않는 별이 된다
         sky.push(st);
       });
       // 화면 밖의 나머지 공간도 같은 밀도로 채운다
@@ -129,6 +132,13 @@
         sky.push(this._skyStar(p, this._star(true)));
       }
       this.sky = sky;
+    }
+
+    _dot(x, y, size, col, a) {
+      const ctx = this.ctx;
+      ctx.fillStyle = `rgba(${col},${a})`;
+      if (size < 1.8 * this.dpr) ctx.fillRect(x - size / 2, y - size / 2, size, size);
+      else { ctx.beginPath(); ctx.arc(x, y, size / 2, 0, Math.PI * 2); ctx.fill(); }
     }
 
     _toWorld(V, p) { return [V[0] * p[0] + V[3] * p[1] + V[6] * p[2], V[1] * p[0] + V[4] * p[1] + V[7] * p[2], V[2] * p[0] + V[5] * p[1] + V[8] * p[2]]; }
@@ -262,23 +272,38 @@
         if (!q) continue;
         let near = nearness(q[2]);
         if (st.blend < 1) {
-          st.blend = Math.min(1, st.blend + dt / 1.5);
+          st.blend = Math.min(1, st.blend + dt / SETTLE);
           const k = st.blend * st.blend * (3 - 2 * st.blend);
           near = st.near0 + (near - st.near0) * k;
         }
-        // 우주에는 대기가 없어 별이 반짝이지 않는다 (셰이더가 그리는 먼 별들도 같다)
-        const a = Math.min(1, 0.35 + near * 0.9) * edge * st.fade;
+        // 우주에는 대기가 없어 별이 반짝이지 않는다 (셰이더가 그리는 먼 별들도 같다).
+        // 날아올 때는 반짝였으므로(평균 0.75배 밝기) 그 반짝임을 이어 가다 SETTLE초에 걸쳐 천천히 멈춘다 — 밝기가 튀지 않게
+        let tw = 1;
+        if (st.twk < 1) {
+          st.twk = Math.min(1, st.twk + dt / SETTLE);
+          st.tw += st.tws * dt;
+          const k = st.twk * st.twk * (3 - 2 * st.twk), tf = 0.75 + 0.25 * Math.sin(st.tw);
+          tw = tf + (1 - tf) * k;
+        }
+        const a = Math.min(1, (0.35 + near * 0.9) * tw) * edge * st.fade;
         const size = Math.min(3.4 * this.dpr, st.s * (0.5 + near * 1.6) * this.dpr);
-        ctx.fillStyle = `rgba(${st.col},${a})`;
-        if (size < 1.8 * this.dpr) ctx.fillRect(q[0] - size / 2, q[1] - size / 2, size, size);
-        else { ctx.beginPath(); ctx.arc(q[0], q[1], size / 2, 0, Math.PI * 2); ctx.fill(); }
+        this._dot(q[0], q[1], size, st.col, a);
       }
     }
 
     frame(dt, t) {
       const ctx = this.ctx, W = this.w, H = this.h;
-      this.warp += (this.warpTarget - this.warp) * Math.min(1, dt * 2.2);
-      if (this.warpTarget === 0 && this.warp < 0.02) this.warp = 0;
+      if (this.warpTarget === 0 && this.arrive != null && this.warp > 0) {
+        /* 행성에 도착하는 중: 카메라가 행성에 다가가는 움직임 하나로 본다. 행성은 1 − (1 − k)⁴로 커지므로
+         * 다가가는 속도는 (1 − k)³에 비례한다. 별이 지나가는 속도도 똑같이 줄여, 행성이 멈추는 순간 별도 함께 멈춘다.
+         * 행성이 아직 나타나지 않았으면(k = 0) 그때까지 같은 속도로 날아간다 */
+        if (this.arriveFrom == null) this.arriveFrom = this.warp;
+        this.warp = this.arriveFrom * Math.pow(1 - Math.min(1, this.arrive), 3);
+      } else {
+        this.arriveFrom = null;
+        this.warp += (this.warpTarget - this.warp) * Math.min(1, dt * 2.2);
+        if (this.warpTarget === 0 && this.warp < 0.02) this.warp = 0;
+      }
       this.mouse.x += (this.mouse.tx - this.mouse.x) * Math.min(1, dt * 3);
       this.mouse.y += (this.mouse.ty - this.mouse.y) * Math.min(1, dt * 3);
       let changed = false;
@@ -289,7 +314,8 @@
       if (changed && ((this._nt = (this._nt || 0) + dt) > 0.1)) { this._nt = 0; this._paintNebula(); }
 
       // 행성에 도착하면(워프가 잦아들면) 지나온 별들을 그 자리 그대로 하늘에 고정한다
-      if (this.view && !this.sky && this.warp < 0.08) { this._enterSky(this.view); this.comet = this.cometU = null; this.cometWait = 12 + Math.random() * 10; }
+      // 별들이 완전히 멈춘 뒤에 고정한다 (움직이는 중에 고정하면 별이 우뚝 멈춰 선다)
+      if (this.view && !this.sky && this.warp === 0) { this._enterSky(this.view); this.comet = this.cometU = null; this.cometWait = 12 + Math.random() * 10; }
       if (!this.view && this.sky) { this.sky = null; this.comet = this.cometU = null; } // 다시 떠나면 멈춰 있던 자리에서 이어서 흐른다
       // 성운은 행성에 도착하기 시작하는 순간(워프가 잦아드는 동안)부터 은하수에게 자리를 내준다.
       // 워프가 끝난 뒤에 흐려지면, 워프가 잦아들며 성운이 먼저 짙어졌다가 사라지는 안개처럼 보인다
@@ -324,27 +350,25 @@
         const x = cx + (s.x / s.z) * scale * 0.5 - this.mouse.x * 18 * par * this.dpr;
         const y = cy + (s.y / s.z) * scale * 0.5 - this.mouse.y * 18 * par * this.dpr;
         if (x < -50 || x > W + 50 || y < -50 || y > H + 50) {
-          if (this.warp > 0.05) Object.assign(s, this._star(false));
+          if (this.warp > 0.005) Object.assign(s, this._star(false)); // 느려지는 중에도 화면 밖으로 나간 별은 먼 곳의 새 별로
           continue;
         }
         const near = 1 - s.z;
         const a = Math.min(1, (0.35 + near * 0.9) * (0.75 + 0.25 * Math.sin(s.tw)));
         const size = s.s * (0.5 + near * 1.6) * this.dpr;
-        if (this.warp > 0.03) {
-          // 꼬리 길이는 프레임 간격이 아니라 속도에 비례 → 느린 기기에서도 같은 모양
-          const tz = Math.min(1.2, s.z + speed * 0.028);
-          const px = cx + (s.x / tz) * scale * 0.5 - this.mouse.x * 18 * par * this.dpr;
-          const py = cy + (s.y / tz) * scale * 0.5 - this.mouse.y * 18 * par * this.dpr;
-          ctx.strokeStyle = `rgba(${s.col},${a * 0.75})`;
+        // 꼬리 길이는 프레임 간격이 아니라 속도에 비례 → 느린 기기에서도 같은 모양
+        const tz = Math.min(1.2, s.z + speed * 0.028);
+        const px = cx + (s.x / tz) * scale * 0.5 - this.mouse.x * 18 * par * this.dpr;
+        const py = cy + (s.y / tz) * scale * 0.5 - this.mouse.y * 18 * par * this.dpr;
+        if (this.warp > 0.003 && Math.hypot(px - x, py - y) > size * 0.6) {
+          // 빠를 때는 빛줄기가 흐리게(0.75배) 퍼지고, 느려지며 짧아질수록 점과 같은 밝기가 된다 (점으로 바뀌는 순간 밝기가 튀지 않게)
+          ctx.strokeStyle = `rgba(${s.col},${a * (1 - 0.25 * Math.min(1, this.warp / 0.2))})`;
           ctx.lineWidth = size;
           ctx.beginPath();
           ctx.moveTo(x, y);
           ctx.lineTo(px, py);
           ctx.stroke();
-        } else {
-          ctx.fillStyle = `rgba(${s.col},${a})`;
-          ctx.fillRect(x - size / 2, y - size / 2, size, size);
-        }
+        } else this._dot(x, y, size, s.col, a); // 하늘에 고정된 뒤와 같은 모양(큰 별은 동그라미)
       }
 
       // 별똥별
