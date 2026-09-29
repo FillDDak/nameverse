@@ -752,7 +752,12 @@
   el.canvas.addEventListener('wheel', (e) => {
     if (!renderer || !viewing()) return;
     e.preventDefault();
-    renderer.zoom = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, renderer.zoom * Math.exp(-e.deltaY * 0.0012)));
+    // 노트북 터치패드의 두 손가락 확대·축소는 Ctrl이 눌린 휠 이벤트로 오고, 값이 마우스 휠(한 칸 약 100)보다
+    // 훨씬 작다(한 번에 1~5). 같은 배율을 쓰면 수십 배 느리므로 따로 키운다. 줄 단위 휠(Firefox)은 픽셀로 바꾼다
+    const dy = e.deltaY * (e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? 400 : 1);
+    // Ctrl을 누른 채 마우스 휠을 굴려도 한 칸에 너무 많이 확대되지 않도록 한 번에 움직이는 양을 제한한다
+    const k = e.ctrlKey ? Math.max(-0.25, Math.min(0.25, dy * 0.012)) : dy * 0.0012;
+    renderer.zoom = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, renderer.zoom * Math.exp(-k)));
     hideProbe();
   }, { passive: false });
   // 더블클릭(더블탭): 처음 시점으로
